@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Trip History</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f3f4f6; height: 100vh; overflow: hidden; }
+  header { background: #1f2937; color: #fff; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 1rem; }
+  header h1 { font-size: 1rem; }
+  header a { margin-left: auto; color: #9ca3af; text-decoration: none; font-size: 0.85rem; }
+  header a:hover { color: #fff; }
+  #main { display: flex; height: calc(100vh - 48px); }
+  #map { flex: 1; height: 100%; z-index: 1; }
+  #sidebar { width: 380px; background: #fff; border-left: 1px solid #e5e7eb; display: flex; flex-direction: column; z-index: 15; overflow: hidden; }
+  #sidebar header { padding: 0.75rem 1rem; border-bottom: 1px solid #e5e7eb; background: #fff; color: #111827; }
+  #sidebar h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 0.5rem; }
+  .controls { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; background: #f9fafb; }
+  .controls label { display: block; font-size: 0.75rem; color: #6b7280; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; }
+  .controls select, .controls input, .controls button {
+    width: 100%; padding: 0.5rem; font-size: 0.85rem; border: 1px solid #d1d5db; border-radius: 6px; background: #fff;
+  }
+  .controls button { margin-top: 0.5rem; background: #1f2937; color: #fff; border: none; cursor: pointer; }
+  .controls button:hover { background: #374151; }
+  #tracks-list { flex: 1; overflow-y: auto; padding: 0.5rem; }
+  .track-item { padding: 0.6rem 0.75rem; border-bottom: 1px solid #f3f4f6; }
+  .track-time { font-weight: 600; font-size: 0.85rem; color: #111827; }
+  .track-meta { font-size: 0.75rem; color: #6b7280; margin-top: 2px; }
+  #empty { padding: 1rem; color: #6b7280; font-size: 0.85rem; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <div style="font-weight:700">TrackPulse</div>
+  <a href="/replay">Replay</a>
+  <a href="/map.html">← Dashboard</a>
+</header>
+<div id="main">
+  <div id="map"></div>
+  <div id="sidebar">
+    <header><h2>Trip History</h2></header>
+    <div class="controls">
+      <label>Device IMEI</label>
+      <select id="imei"></select>
+      <label>From (YYYY-MM-DD)</label>
+      <input type="date" id="from" />
+      <label>To (YYYY-MM-DD)</label>
+      <input type="date" id="to" />
+      <label>Limit points</label>
+      <input type="number" id="limit" value="500" />
+      <button id="load">Load Track</button>
+    </div>
+    <div id="tracks-list"></div>
+    <div id="empty">Select a device and load a track.</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const API_BASE = "";
+const map = L.map('map', { zoomControl: false }).setView([52.52, 13.405], 8);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+let trackPolyline = null;
+let trackMarkers = [];
+const imeiSel = document.getElementById('imei');
+const fromInput = document.getElementById('from');
+const toInput = document.getElementById('to');
+const limitInput = document.getElementById('limit');
+const loadBtn = document.getElementById('load');
+const tracksList = document.getElementById('tracks-list');
+const emptyEl = document.getElementById('empty');
+
+// Default date range: last 7 days
+toInput.value = new Date().toISOString().split('T')[0];
+fromInput.value = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+
+async function loadDevices() {
+  try {
+    const res = await fetch(`${API_BASE}/api/devices`);
+    const data = await res.json();
+    imeiSel.innerHTML = '';
+    for (const d of data.devices) {
+      const opt = document.createElement('option');
+      opt.value = d.imei;
+      opt.textContent = d.imei + (d.online ? ' ●' : ' ○');
+      imeiSel.appendChild(opt);
+    }
+  } catch (e) {
+    console.error('loadDevices', e);
+  }
+}
+
+function clearTrack() {
+  if (trackPolyline) { map.removeLayer(trackPolyline); trackPolyline = null; }
+  for (const m of trackMarkers) map.removeLayer(m);
+  trackMarkers = [];
+  tracksList.innerHTML = '';
+  emptyEl.style.display = 'block';
+}
+
+function formatTime(ms) {
+  return new Date(ms).toISOString().replace('T', ' ').substring(0, 19);
+}
+
+async function loadTrack() {
+  const imei = imeiSel.value;
+  const from = fromInput.value;
+  const to = toInput.value;
+  const limit = limitInput.value || 500;
+
+  if (!imei) return;
+
+  clearTrack();
+  loadBtn.textContent = 'Loading…';
+  loadBtn.disabled = true;
+
+  try {
+    const url = `${API_BASE}/api/tracks?imei=${encodeURIComponent(imei)}&from=${new Date(from + 'T00:00:00Z').getTime()}&to=${new Date(to + 'T23:59:59Z').getTime()}&limit=${limit}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const points = data.positions;
+
+    if (!points.length) {
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = 'No positions found for this range.';
+      return;
+    }
+
+    emptyEl.style.display = 'none';
+    const latLngs = [];
+
+    for (const p of points) {
+      const latlng = L.latLng(p.latitude, p.longitude);
+      latLngs.push(latlng);
+
+      const m = L.circleMarker(latlng, {
+        radius: 4,
+        fillColor: p.speed > 80 ? '#ef4444' : '#2563eb',
+        color: '#fff',
+        weight: 1,
+        fillOpacity: 0.8
+      }).bindPopup(`
+        <div style="font-size:0.8rem">
+          <b>${formatTime(p.timestamp_ms)}</b><br/>
+          Speed: ${p.speed} km/h • Alt: ${p.altitude}m • Sats: ${p.satellites}
+        </div>
+      `);
+      m.addTo(map);
+      trackMarkers.push(m);
+
+      const div = document.createElement('div');
+      div.className = 'track-item';
+      div.innerHTML = `
+        <div class="track-time">${formatTime(p.timestamp_ms)}</div>
+        <div class="track-meta">
+          ${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)} • ${p.speed} km/h • ${p.satellites} sats
+        </div>
+      `;
+      tracksList.appendChild(div);
+    }
+
+    trackPolyline = L.polyline(latLngs, { color: '#2563eb', weight: 3, opacity: 0.7 }).addTo(map);
+    map.fitBounds(trackPolyline.getBounds(), { padding: [60, 60] });
+  } catch (e) {
+    console.error(e);
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Error loading track.';
+  } finally {
+    loadBtn.textContent = 'Load Track';
+    loadBtn.disabled = false;
+  }
+}
+
+loadBtn.addEventListener('click', loadTrack);
+imeiSel.addEventListener('change', loadTrack);
+
+loadDevices();
+</script>
+</body>
+</html>

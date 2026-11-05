@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Live Fleet Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f1f5f9;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --online: #10b981;
+    --offline: #94a3b8;
+    --alert: #ef4444;
+    --amber: #f59e0b;
+  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+  /* ---------- Header ---------- */
+  .topbar { height: 58px; background: #0f172a; color: #fff; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; z-index: 30; position: relative; }
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 800; letter-spacing: 0.3px; font-size: 1.05rem; }
+  .brand .logo-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 rgba(16,185,129,.7); animation: brandPulse 2s infinite; }
+  @keyframes brandPulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.7); } 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
+  .nav a { color: #cbd5e1; text-decoration: none; font-size: 0.82rem; padding: 0.4rem 0.7rem; border-radius: 8px; transition: 0.15s; }
+  .nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .nav a.active { background: rgba(37,99,235,0.25); color: #fff; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.9rem; }
+  .clock { font-variant-numeric: tabular-nums; font-size: 0.85rem; color: #cbd5e1; letter-spacing: 0.5px; }
+  .ws-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 600; padding: 0.3rem 0.65rem; border-radius: 999px; background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); }
+  .ws-pill.connected { background: rgba(16,185,129,0.15); color: #6ee7b7; border-color: rgba(16,185,129,0.35); }
+  .ws-pill .ws-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  /* ---------- Layout ---------- */
+  #main { display: flex; height: calc(100vh - 58px); }
+  #map { flex: 1; height: 100%; position: relative; z-index: 1; }
+
+  /* ---------- Map overlays ---------- */
+  .map-overlay { position: absolute; z-index: 900; }
+  #stats { top: 14px; left: 14px; display: grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 8px; }
+  .stat-card { background: rgba(255,255,255,0.94); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.8rem; box-shadow: 0 4px 14px rgba(15,23,42,0.08); min-width: 118px; }
+  .stat-label { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 700; }
+  .stat-value { font-size: 1.35rem; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat-value.green { color: var(--online); }
+  .stat-value.blue { color: var(--accent); }
+  .stat-value.red { color: var(--alert); }
+
+  #detail { bottom: 24px; left: 14px; width: 330px; background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 8px 28px rgba(15,23,42,0.16); padding: 0.9rem 1rem; display: none; }
+  #detail.visible { display: block; }
+  .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.65rem; }
+  .detail-head .imei { font-weight: 800; font-size: 0.9rem; }
+  .follow-btn { border: none; border-radius: 999px; font-size: 0.7rem; font-weight: 700; padding: 0.3rem 0.7rem; cursor: pointer; background: #e2e8f0; color: #475569; transition: 0.15s; }
+  .follow-btn.on { background: rgba(16,185,129,0.15); color: #047857; }
+  .detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.6rem; }
+  .detail-grid label { display: block; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
+  .detail-grid span { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .detail-coords { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .detail-time { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+  /* ---------- Sidebar ---------- */
+  #sidebar { width: 372px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; z-index: 15; overflow: hidden; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: #f8fafc; }
+  .tab { flex: 1; padding: 0.7rem 0.5rem; text-align: center; font-size: 0.8rem; font-weight: 700; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: 0.15s; user-select: none; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: #fff; }
+  .tab .count { display: inline-block; font-size: 0.65rem; background: #e2e8f0; color: #475569; border-radius: 999px; padding: 0.05rem 0.4rem; margin-left: 4px; }
+  .tab.active .count { background: rgba(37,99,235,0.12); color: var(--accent); }
+
+  .panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .panel.active { display: flex; }
+
+  .search-wrap { padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .search-wrap input { width: 100%; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 9px; font-size: 0.82rem; background: #f8fafc; outline: none; transition: 0.15s; }
+  .search-wrap input:focus { border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+
+  #device-list, #activity-list { flex: 1; overflow-y: auto; }
+
+  .dev-card { padding: 0.7rem 0.85rem; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.12s; border-left: 3px solid transparent; }
+  .dev-card:hover { background: #f8fafc; }
+  .dev-card.selected { background: #eff6ff; border-left-color: var(--accent); }
+  .dev-top { display: flex; align-items: center; gap: 0.45rem; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  .dot.online { background: var(--online); box-shadow: 0 0 0 3px rgba(16,185,129,0.15); }
+  .dot.offline { background: var(--offline); }
+  .dev-imei { font-weight: 700; font-size: 0.83rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .speed-badge { font-size: 0.68rem; font-weight: 800; padding: 0.18rem 0.45rem; border-radius: 999px; background: #eff6ff; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .speed-badge.fast { background: #fef2f2; color: var(--alert); }
+  .speed-badge.zero { background: #f1f5f9; color: var(--muted); }
+  .dev-bottom { display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.3rem; font-size: 0.7rem; color: var(--muted); padding-left: 1.05rem; }
+  .dev-bottom .online-text { color: var(--online); font-weight: 700; }
+  .dev-bottom .offline-text { color: var(--muted); font-weight: 600; }
+
+  .act-item { display: flex; gap: 0.6rem; padding: 0.65rem 0.85rem; border-bottom: 1px solid #f1f5f9; }
+  .act-icon { width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 800; }
+  .act-icon.alert { background: #fef2f2; color: var(--alert); }
+  .act-icon.enter { background: #eff6ff; color: var(--accent); }
+  .act-icon.exit { background: #fffbeb; color: #b45309; }
+  .act-icon.on { background: #ecfdf5; color: #047857; }
+  .act-icon.off { background: #f1f5f9; color: var(--muted); }
+  .act-body { flex: 1; min-width: 0; }
+  .act-msg { font-size: 0.78rem; font-weight: 600; line-height: 1.35; word-break: break-word; }
+  .act-meta { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
+
+  .empty-state { padding: 2rem 1rem; text-align: center; color: var(--muted); font-size: 0.82rem; line-height: 1.5; }
+
+  /* ---------- Map markers ---------- */
+  .marker-wrap { position: relative; width: 26px; height: 26px; }
+  .marker-wrap .dot { position: absolute; inset: 8px; border-radius: 50%; background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 5px rgba(15,23,42,0.45); }
+  .marker-wrap.online .dot { background: var(--online); }
+  .marker-wrap.offline .dot { background: var(--offline); }
+  .marker-wrap.selected .dot { background: var(--amber); }
+  .marker-wrap .pulse { position: absolute; inset: 2px; border-radius: 50%; background: rgba(16,185,129,0.35); animation: pulse 2s infinite; }
+  .marker-wrap.offline .pulse, .marker-wrap.selected .pulse { display: none; }
+  @keyframes pulse { 0% { transform: scale(0.55); opacity: 0.9; } 70% { transform: scale(1.7); opacity: 0; } 100% { opacity: 0; } }
+
+  /* ---------- Toast ---------- */
+  #toast { position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-8px); padding: 0.55rem 1rem; background: #0f172a; color: #fff; border-radius: 10px; font-size: 0.82rem; font-weight: 600; pointer-events: none; opacity: 0; transition: all 0.25s; z-index: 1000; box-shadow: 0 8px 24px rgba(15,23,42,0.35); max-width: 80vw; }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo-dot"></span>TrackPulse</div>
+  <div class="nav">
+    <a href="/map.html" class="active">Dashboard</a>
+    <a href="/reports">GPS Data</a>
+    <a href="/replay">Replay</a>
+    <a href="/tracks.html">Trip History</a>
+    <a href="/geofences.html">Geofences</a>
+    <a href="/events.html">Events</a>
+  </div>
+  <div class="topbar-right">
+    <span class="clock" id="clock">--:--:--</span>
+    <span class="ws-pill" id="ws-pill"><span class="ws-dot"></span><span id="ws-text">Connecting…</span></span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="map">
+    <div class="map-overlay" id="stats">
+      <div class="stat-card"><div class="stat-label">Devices</div><div class="stat-value blue" id="stat-devices">0</div></div>
+      <div class="stat-card"><div class="stat-label">Online</div><div class="stat-value green" id="stat-online">0</div></div>
+      <div class="stat-card"><div class="stat-label">Positions Today</div><div class="stat-value" id="stat-positions">0</div></div>
+      <div class="stat-card"><div class="stat-label">Alerts Today</div><div class="stat-value red" id="stat-alerts">0</div></div>
+    </div>
+
+    <div class="map-overlay" id="detail">
+      <div class="detail-head">
+        <span class="imei" id="d-imei">—</span>
+        <button class="follow-btn on" id="follow-btn">Following</button>
+      </div>
+      <div class="detail-grid">
+        <div><label>Speed</label><span id="d-speed">–</span></div>
+        <div><label>Heading</label><span id="d-heading">–</span></div>
+        <div><label>Altitude</label><span id="d-alt">–</span></div>
+        <div><label>Sats</label><span id="d-sats">–</span></div>
+      </div>
+      <div class="detail-coords" id="d-coords">–</div>
+      <div class="detail-time" id="d-time">–</div>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <div class="tabs">
+      <div class="tab active" data-tab="devices">Devices <span class="count" id="dev-count">0</span></div>
+      <div class="tab" data-tab="activity">Activity <span class="count" id="act-count">0</span></div>
+    </div>
+
+    <div class="panel active" id="panel-devices">
+      <div class="search-wrap"><input id="search" type="text" placeholder="Search IMEI…" /></div>
+      <div id="device-list"><div class="empty-state">Loading devices…</div></div>
+    </div>
+
+    <div class="panel" id="panel-activity">
+      <div id="activity-list"><div class="empty-state">Loading activity…</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const API_BASE = "";
+const map = L.map('map', { zoomControl: false }).setView([52.52, 13.405], 10);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const markers = {};      // imei -> { marker, path, polyline, animToken }
+let devicesData = {};    // imei -> device object
+let activityItems = [];  // newest first
+let selectedImei = null;
+let followMode = true;
+let listDirty = false;
+let stats = { devices_total: 0, devices_online: 0, positions_today: 0, events_today: 0 };
+
+const els = {
+  clock: document.getElementById('clock'),
+  wsPill: document.getElementById('ws-pill'),
+  wsText: document.getElementById('ws-text'),
+  deviceList: document.getElementById('device-list'),
+  activityList: document.getElementById('activity-list'),
+  devCount: document.getElementById('dev-count'),
+  actCount: document.getElementById('act-count'),
+  search: document.getElementById('search'),
+  detail: document.getElementById('detail'),
+  dImei: document.getElementById('d-imei'),
+  dSpeed: document.getElementById('d-speed'),
+  dHeading: document.getElementById('d-heading'),
+  dAlt: document.getElementById('d-alt'),
+  dSats: document.getElementById('d-sats'),
+  dCoords: document.getElementById('d-coords'),
+  dTime: document.getElementById('d-time'),
+  followBtn: document.getElementById('follow-btn'),
+  statDevices: document.getElementById('stat-devices'),
+  statOnline: document.getElementById('stat-online'),
+  statPositions: document.getElementById('stat-positions'),
+  statAlerts: document.getElementById('stat-alerts'),
+  toast: document.getElementById('toast'),
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function timeAgo(dateOrMs) {
+  const d = typeof dateOrMs === 'number' ? new Date(dateOrMs) : dateOrMs;
+  const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function parseUtc(s) {
+  return new Date(s.replace(' ', 'T') + 'Z');
+}
+
+function compass(angle) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round((angle || 0) / 45) % 8];
+}
+
+function showToast(msg) {
+  els.toast.textContent = msg;
+  els.toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => els.toast.classList.remove('show'), 2800);
+}
+
+function markerIcon(online, selected) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="marker-wrap ${online ? 'online' : 'offline'} ${selected ? 'selected' : ''}">
+             <div class="pulse"></div><div class="dot"></div>
+           </div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    popupAnchor: [0, -14],
+  });
+}
+
+function popupHtml(pos) {
+  return `<div style="font-size:0.8rem;line-height:1.5">
+    <b>${pos.imei}</b><br/>
+    ${new Date(pos.timestamp_ms).toLocaleString()}<br/>
+    Speed: <b>${pos.speed} km/h</b> • Heading: ${compass(pos.angle)}<br/>
+    Alt: ${pos.altitude} m • Sats: ${pos.satellites}
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Clock + tabs
+// ---------------------------------------------------------------------------
+function tickClock() {
+  const now = new Date();
+  els.clock.textContent = now.toLocaleTimeString([], { hour12: false });
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+els.search.addEventListener('input', renderDeviceList);
+
+// ---------------------------------------------------------------------------
+// Stats
+// ---------------------------------------------------------------------------
+async function loadStats() {
+  try {
+    const res = await fetch(`${API_BASE}/api/stats`);
+    stats = await res.json();
+    renderStats();
+  } catch (e) { /* ignore */ }
+}
+
+function renderStats() {
+  els.statDevices.textContent = stats.devices_total ?? 0;
+  els.statOnline.textContent = stats.devices_online ?? 0;
+  els.statPositions.textContent = stats.positions_today ?? 0;
+  els.statAlerts.textContent = stats.events_today ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Devices
+// ---------------------------------------------------------------------------
+async function loadDevices() {
+  try {
+    const res = await fetch(`${API_BASE}/api/devices`);
+    const data = await res.json();
+    const next = {};
+    for (const d of data.devices) {
+      next[d.imei] = d;
+      // Draw stored devices on the map too, not only live ones.
+      if (d.latest) ensureMarker(d.imei, d.latest, d.online);
+    }
+    devicesData = next;
+
+    if (!didInitialFit && Object.keys(markers).length) {
+      didInitialFit = true;
+      fitAllMarkers();
+    }
+
+    renderDeviceList();
+  } catch (e) {
+    els.deviceList.innerHTML = '<div class="empty-state">Failed to load devices.</div>';
+  }
+}
+
+let didInitialFit = false;
+
+/// Create a map marker for a device position if it doesn't exist yet.
+/// `move` is false while a live animation is in progress.
+function ensureMarker(imei, pos, online, move = true) {
+  let entry = markers[imei];
+  const latlng = { lat: pos.latitude, lng: pos.longitude };
+
+  if (!entry) {
+    const marker = L.marker(latlng, { icon: markerIcon(online, imei === selectedImei) }).addTo(map);
+    marker.bindPopup(popupHtml(pos));
+    marker.on('click', () => selectDevice(imei));
+    entry = markers[imei] = { marker, path: [], polyline: null, animToken: 0 };
+  } else {
+    entry.marker.setIcon(markerIcon(online, imei === selectedImei));
+    if (entry.marker.getPopup()) entry.marker.setPopupContent(popupHtml(pos));
+    if (move) {
+      const cur = entry.marker.getLatLng();
+      if (cur.lat !== latlng.lat || cur.lng !== latlng.lng) entry.marker.setLatLng(latlng);
+    }
+  }
+  return entry;
+}
+
+/// Zoom the map so every known device is visible.
+function fitAllMarkers() {
+  const points = Object.values(markers).map(m => m.marker.getLatLng());
+  if (!points.length) return;
+  if (points.length === 1) {
+    map.setView(points[0], 15);
+  } else {
+    map.fitBounds(L.latLngBounds(points), { padding: [70, 70], maxZoom: 15 });
+  }
+}
+
+function renderDeviceList() {
+  const q = els.search.value.trim().toLowerCase();
+  const list = Object.values(devicesData)
+    .filter(d => !q || d.imei.toLowerCase().includes(q))
+    .sort((a, b) => (b.online - a.online) || a.imei.localeCompare(b.imei));
+
+  els.devCount.textContent = Object.keys(devicesData).length;
+
+  if (!list.length) {
+    els.deviceList.innerHTML = '<div class="empty-state">No devices yet.<br/>Connect a tracker to port 8082.</div>';
+    return;
+  }
+
+  els.deviceList.innerHTML = '';
+  for (const d of list) {
+    const p = d.latest;
+    const speed = p ? p.speed : null;
+    const speedClass = speed === null ? 'zero' : (speed > 80 ? 'fast' : (speed === 0 ? 'zero' : ''));
+    const lastSeen = d.last_seen ? timeAgo(parseUtc(d.last_seen)) : '—';
+
+    const card = document.createElement('div');
+    card.className = 'dev-card' + (d.imei === selectedImei ? ' selected' : '');
+    card.innerHTML = `
+      <div class="dev-top">
+        <span class="dot ${d.online ? 'online' : 'offline'}"></span>
+        <span class="dev-imei">${d.imei}</span>
+        <span class="speed-badge ${speedClass}">${speed === null ? '—' : speed + ' km/h'}</span>
+      </div>
+      <div class="dev-bottom">
+        <span class="${d.online ? 'online-text' : 'offline-text'}">${d.online ? '● Online' : '○ Offline'}</span>
+        <span>${lastSeen}${p ? ' • ' + p.satellites + ' sats' : ''}</span>
+      </div>
+    `;
+    card.addEventListener('click', () => selectDevice(d.imei));
+    els.deviceList.appendChild(card);
+  }
+}
+
+// Re-render device list at most every 600ms during live updates.
+setInterval(() => {
+  if (listDirty) {
+    listDirty = false;
+    renderDeviceList();
+  }
+}, 600);
+
+function selectDevice(imei) {
+  selectedImei = imei;
+  const d = devicesData[imei];
+  els.detail.classList.add('visible');
+  els.dImei.textContent = imei;
+
+  if (d && d.latest) {
+    updateDetail(d.latest);
+    const entry = ensureMarker(imei, d.latest, d.online);
+    setFollow(true);
+    map.flyTo(entry.marker.getLatLng(), 15, { duration: 0.8 });
+    setTimeout(() => entry.marker.openPopup(), 850);
+  } else {
+    showToast(`${imei} has not reported a position yet`);
+  }
+  renderDeviceList();
+}
+
+function updateDetail(pos) {
+  els.dSpeed.textContent = pos.speed + ' km/h';
+  els.dHeading.textContent = compass(pos.angle) + ' ' + pos.angle + '°';
+  els.dAlt.textContent = pos.altitude + ' m';
+  els.dSats.textContent = pos.satellites;
+  els.dCoords.textContent = `${pos.latitude.toFixed(6)}, ${pos.longitude.toFixed(6)}`;
+  els.dTime.textContent = 'Updated ' + timeAgo(pos.timestamp_ms);
+}
+
+function setFollow(on) {
+  followMode = on;
+  els.followBtn.textContent = on ? 'Following' : 'Follow';
+  els.followBtn.classList.toggle('on', on);
+}
+els.followBtn.addEventListener('click', () => setFollow(!followMode));
+map.on('dragstart', () => setFollow(false));
+
+// ---------------------------------------------------------------------------
+// Live positions
+// ---------------------------------------------------------------------------
+function animateMarker(entry, target, duration = 900) {
+  entry.animToken = (entry.animToken || 0) + 1;
+  const token = entry.animToken;
+  const start = entry.marker.getLatLng();
+  const from = { lat: start.lat, lng: start.lng };
+  const t0 = performance.now();
+
+  function step(now) {
+    if (entry.animToken !== token) return;
+    const t = Math.min(1, (now - t0) / duration);
+    const e = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    entry.marker.setLatLng([
+      from.lat + (target.lat - from.lat) * e,
+      from.lng + (target.lng - from.lng) * e,
+    ]);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function handlePosition(pos) {
+  const { imei, latitude, longitude } = pos;
+  const latlng = { lat: latitude, lng: longitude };
+  const existing = markers[imei];
+
+  if (existing) {
+    existing.marker.setIcon(markerIcon(true, imei === selectedImei));
+    animateMarker(existing, latlng);
+    existing.marker.setPopupContent(popupHtml(pos));
+  }
+
+  const entry = ensureMarker(imei, pos, true, false);
+
+  // Trail (last 50 points)
+  entry.path.push(latlng);
+  if (entry.path.length > 50) entry.path.shift();
+  if (entry.polyline) entry.polyline.setLatLngs(entry.path);
+  else entry.polyline = L.polyline(entry.path, { color: '#2563eb', weight: 2, opacity: 0.55 }).addTo(map);
+
+  // Update local device data
+  const d = devicesData[imei] || {
+    imei,
+    first_seen: '',
+    last_seen: '',
+    online: true,
+    latest: null,
+  };
+  d.online = true;
+  d.last_seen = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  d.latest = pos;
+  devicesData[imei] = d;
+  listDirty = true;
+
+  if (imei === selectedImei) {
+    updateDetail(pos);
+    if (followMode) map.panTo(latlng, { animate: true, duration: 0.6 });
+  }
+
+  // Optimistic stats increment (corrected by the next loadStats).
+  stats.positions_today = (stats.positions_today || 0) + 1;
+  renderStats();
+}
+
+// ---------------------------------------------------------------------------
+// Activity feed
+// ---------------------------------------------------------------------------
+function eventClass(type) {
+  switch (type) {
+    case 'overspeed': return 'alert';
+    case 'geofence_enter': return 'enter';
+    case 'geofence_exit': return 'exit';
+    case 'online': return 'on';
+    case 'offline': return 'off';
+    default: return 'off';
+  }
+}
+
+function eventSymbol(type) {
+  switch (type) {
+    case 'overspeed': return '!';
+    case 'geofence_enter': return '↓';
+    case 'geofence_exit': return '↑';
+    case 'online': return '●';
+    case 'offline': return '○';
+    default: return '•';
+  }
+}
+
+function activityHtml(evt) {
+  return `
+    <div class="act-icon ${eventClass(evt.type)}">${eventSymbol(evt.type)}</div>
+    <div class="act-body">
+      <div class="act-msg">${evt.message}</div>
+      <div class="act-meta">${evt.imei} • ${timeAgo(evt.timestamp_ms)}</div>
+    </div>
+  `;
+}
+
+function renderActivity() {
+  els.actCount.textContent = activityItems.length;
+  if (!activityItems.length) {
+    els.activityList.innerHTML = '<div class="empty-state">No activity yet.<br/>Alerts and device events will appear here.</div>';
+    return;
+  }
+  els.activityList.innerHTML = '';
+  for (const evt of activityItems) {
+    const item = document.createElement('div');
+    item.className = 'act-item';
+    item.innerHTML = activityHtml(evt);
+    els.activityList.appendChild(item);
+  }
+}
+
+async function loadActivity() {
+  try {
+    const res = await fetch(`${API_BASE}/api/events?limit=40`);
+    const data = await res.json();
+    activityItems = data.events || [];
+    renderActivity();
+  } catch (e) { /* ignore */ }
+}
+
+function addActivity(evt) {
+  activityItems.unshift(evt);
+  if (activityItems.length > 100) activityItems.pop();
+  renderActivity();
+}
+
+// Refresh relative timestamps in the feed periodically.
+setInterval(() => { if (activityItems.length) renderActivity(); }, 30000);
+
+// ---------------------------------------------------------------------------
+// WebSocket
+// ---------------------------------------------------------------------------
+let ws = null;
+
+function connectWS() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+  ws.onopen = () => {
+    els.wsPill.classList.add('connected');
+    els.wsText.textContent = 'Live';
+    showToast('Live stream connected');
+  };
+
+  ws.onclose = () => {
+    els.wsPill.classList.remove('connected');
+    els.wsText.textContent = 'Reconnecting…';
+    setTimeout(connectWS, 2000);
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'position') {
+        handlePosition(msg.data);
+      } else if (msg.type === 'event') {
+        const evt = msg.data;
+        addActivity(evt);
+        showToast(`[${evt.type.toUpperCase()}] ${evt.imei}: ${evt.message}`);
+        stats.events_today = (stats.events_today || 0) + 1;
+        renderStats();
+        loadDevices(); // online/offline status may have changed
+      }
+    } catch (e) {
+      console.error('WS parse error', e);
+    }
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+connectWS();
+loadStats();
+loadDevices();
+loadActivity();
+setInterval(loadStats, 15000);
+setInterval(loadDevices, 15000);
+setInterval(() => { if (selectedImei) renderDeviceList(); }, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Geofences</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.draw@1.0.4/dist/leaflet.draw.css" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f3f4f6; height: 100vh; overflow: hidden; }
+  header { background: #1f2937; color: #fff; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 1rem; }
+  header h1 { font-size: 1rem; }
+  header a { margin-left: auto; color: #9ca3af; text-decoration: none; font-size: 0.85rem; }
+  header a:hover { color: #fff; }
+  #main { display: flex; height: calc(100vh - 48px); }
+  #map { flex: 1; height: 100%; z-index: 1; }
+  #sidebar { width: 400px; background: #fff; border-left: 1px solid #e5e7eb; display: flex; flex-direction: column; z-index: 15; overflow: hidden; }
+  #sidebar header { padding: 0.75rem 1rem; border-bottom: 1px solid #e5e7eb; background: #fff; color: #111827; }
+  #sidebar h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 0.5rem; }
+  .controls { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; background: #f9fafb; }
+  .controls label { display: block; font-size: 0.75rem; color: #6b7280; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; }
+  .controls input { width: 100%; padding: 0.5rem; font-size: 0.85rem; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; margin-bottom: 0.5rem; }
+  .controls button { width: 100%; padding: 0.5rem; background: #1f2937; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .controls button:hover { background: #374151; }
+  .controls button.secondary { background: #ef4444; }
+  #geofence-list { flex: 1; overflow-y: auto; padding: 0.5rem; }
+  .gf-item { padding: 0.6rem 0.75rem; border-bottom: 1px solid #f3f4f6; }
+  .gf-name { font-weight: 600; font-size: 0.85rem; color: #111827; }
+  .gf-actions { margin-top: 4px; display: flex; gap: 0.4rem; }
+  .gf-actions button { font-size: 0.7rem; padding: 0.2rem 0.5rem; border: none; border-radius: 4px; cursor: pointer; }
+  .gf-actions .del { background: #ef4444; color: #fff; }
+  .gf-actions .zoom { background: #2563eb; color: #fff; }
+  #empty { padding: 1rem; color: #6b7280; font-size: 0.85rem; text-align: center; }
+  #draw-hint { padding: 0.5rem 1rem; font-size: 0.75rem; color: #6b7280; border-top: 1px solid #f3f4f6; background: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <div style="font-weight:700">TrackPulse</div>
+  <a href="/replay">Replay</a>
+  <a href="/map.html">← Dashboard</a>
+</header>
+<div id="main">
+  <div id="map"></div>
+  <div id="sidebar">
+    <header><h2>Geofences</h2></header>
+    <div class="controls">
+      <label>Zone name</label>
+      <input type="text" id="gf-name" placeholder="e.g. Depot Zone A" />
+      <p style="font-size:0.7rem;color:#6b7280;margin-bottom:0.5rem">Draw a polygon on the map, then click Save.</p>
+      <button id="save-btn" disabled>Save Geofence</button>
+      <button id="clear-btn" class="secondary">Clear Drawing</button>
+    </div>
+    <div id="draw-hint">Use the polygon tool (top-left of the map) to draw zones. Breach events appear on the Events page.</div>
+    <div id="geofence-list"></div>
+    <div id="empty">No geofences defined.</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.draw@1.0.4/dist/leaflet.draw.js"></script>
+<script>
+const API_BASE = "";
+const map = L.map('map', { zoomControl: false }).setView([52.52, 13.405], 10);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+const drawnItems = L.featureGroup().addTo(map);
+const gfLayers = []; // saved geofence layers on map
+
+const nameInput = document.getElementById('gf-name');
+const saveBtn = document.getElementById('save-btn');
+const clearBtn = document.getElementById('clear-btn');
+const gfList = document.getElementById('geofence-list');
+const emptyEl = document.getElementById('empty');
+
+// Leaflet Draw control
+const drawControl = new L.Control.Draw({
+  edit: { featureGroup: drawnItems },
+  draw: {
+    polygon: { allowIntersection: false, showArea: true },
+    polyline: false,
+    circle: false,
+    rectangle: false,
+    marker: false,
+    circlemarker: false
+  }
+});
+map.addControl(drawControl);
+
+map.on(L.Draw.Event.CREATED, (event) => {
+  drawnItems.clearLayers();
+  drawnItems.addLayer(event.layer);
+  saveBtn.disabled = false;
+});
+
+async function loadGeofences() {
+  try {
+    const res = await fetch(`${API_BASE}/api/geofences`);
+    const data = await res.json();
+    renderGeofences(data.geofences);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function renderGeofences(geofences) {
+  gfList.innerHTML = '';
+  for (const l of gfLayers) map.removeLayer(l);
+  gfLayers.length = 0;
+
+  if (!geofences.length) {
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  for (const gf of geofences) {
+    const item = document.createElement('div');
+    item.className = 'gf-item';
+
+    const name = document.createElement('div');
+    name.className = 'gf-name';
+    name.textContent = gf.name;
+
+    const actions = document.createElement('div');
+    actions.className = 'gf-actions';
+
+    const zoomBtn = document.createElement('button');
+    zoomBtn.className = 'zoom';
+    zoomBtn.textContent = 'Zoom';
+    zoomBtn.addEventListener('click', () => zoomToGeofence(gf.geojson));
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', () => deleteGeofence(gf.id));
+
+    actions.appendChild(zoomBtn);
+    actions.appendChild(delBtn);
+    item.appendChild(name);
+    item.appendChild(actions);
+    gfList.appendChild(item);
+
+    try {
+      const layer = L.geoJSON(gf.geojson, {
+        style: { color: '#dc2626', weight: 2, fillOpacity: 0.15 },
+        onEachFeature: (feature, layer) => {
+          layer.bindPopup(`<b>${gf.name}</b>`);
+        }
+      }).addTo(map);
+      gfLayers.push(layer);
+    } catch (e) {
+      console.error('geojson render error', e);
+    }
+  }
+}
+
+async function saveGeofence() {
+  const name = nameInput.value.trim();
+  if (!name) { alert('Enter a zone name'); return; }
+
+  const layers = drawnItems.getLayers();
+  if (!layers.length) { alert('Draw a polygon on the map first'); return; }
+
+  const geojson = layers[0].toGeoJSON();
+  saveBtn.textContent = 'Saving…';
+  saveBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/geofences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, geojson })
+    });
+    if (!res.ok) throw new Error('Save failed');
+    nameInput.value = '';
+    drawnItems.clearLayers();
+    saveBtn.textContent = 'Save Geofence';
+    loadGeofences();
+  } catch (e) {
+    alert('Failed to save geofence: ' + e.message);
+    saveBtn.textContent = 'Save Geofence';
+    saveBtn.disabled = false;
+  }
+}
+
+async function deleteGeofence(id) {
+  if (!confirm('Delete this geofence?')) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/geofences/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Delete failed');
+    loadGeofences();
+  } catch (e) {
+    alert('Failed to delete: ' + e.message);
+  }
+}
+
+function zoomToGeofence(geojson) {
+  try {
+    const layer = L.geoJSON(geojson);
+    const bounds = layer.getBounds();
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50] });
+  } catch (e) {}
+}
+
+saveBtn.addEventListener('click', saveGeofence);
+clearBtn.addEventListener('click', () => {
+  drawnItems.clearLayers();
+  saveBtn.disabled = true;
+});
+
+loadGeofences();
+</script>
+</body>
+</html>

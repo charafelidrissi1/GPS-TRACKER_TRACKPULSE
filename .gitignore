@@ -1,0 +1,11 @@
+# Build artifacts
+/target
+
+# Runtime database (created on first start)
+/gps-tracker.db
+/gps-tracker.db-shm
+/gps-tracker.db-wal
+
+# Logs and OS noise
+*.log
+.DS_Store

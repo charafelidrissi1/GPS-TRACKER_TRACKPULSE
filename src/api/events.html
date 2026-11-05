@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Events & Alerts</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f3f4f6; color: #111827; }
+  header { background: #1f2937; color: #fff; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 1rem; }
+  header h1 { font-size: 1rem; }
+  header a { margin-left: auto; color: #9ca3af; text-decoration: none; font-size: 0.85rem; }
+  header a:hover { color: #fff; }
+  main { max-width: 980px; margin: 1.5rem auto; padding: 0 1rem; }
+  .controls { display: flex; gap: 0.75rem; align-items: flex-end; margin-bottom: 1rem; flex-wrap: wrap; }
+  .controls label { font-size: 0.75rem; color: #6b7280; font-weight: 600; text-transform: uppercase; }
+  .controls select, .controls input { padding: 0.5rem; font-size: 0.85rem; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; }
+  .controls button { padding: 0.5rem 1rem; background: #1f2937; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .controls button:hover { background: #374151; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  th { background: #f9fafb; text-align: left; padding: 0.75rem 1rem; font-size: 0.75rem; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #e5e735; border-bottom: 1px solid #e5e735; border-bottom: 1px solid #e5e735; border-bottom: 1px solid #e5e735; font-weight: 600; }
+  td { padding: 0.75rem 1rem; font-size: 0.85rem; border-bottom: 1px solid #f3f4f6; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: #f9fafb; }
+  .badge { display: inline-block; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 600; text-transform: uppercase; }
+  .badge.overspeed { background: #fee2e2; color: #991b1b; }
+  .badge.online { background: #dcfce7; color: #166534; }
+  .badge.offline { background: #e5e7eb; color: #374151; }
+  .badge.geofence { background: #dbeafe; color: #1e40af; }
+  .empty { text-align: center; padding: 2rem; color: #6b7280; }
+</style>
+</head>
+<body>
+<header>
+  <div style="font-weight:700">TrackPulse</div>
+  <a href="/replay">Replay</a>
+  <a href="/map.html">← Dashboard</a>
+</header>
+<main>
+  <div class="controls">
+    <label>Device</label>
+    <select id="imei"><option value="">All devices</option></select>
+    <label>Limit</label>
+    <select id="limit"><option value="50">50</option><option value="100">100</option><option value="500">500</option></select>
+    <button id="load">Refresh</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Device</th>
+        <th>Type</th>
+        <th>Message</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div id="empty" class="empty">Loading events…</div>
+</main>
+
+<script>
+const API_BASE = "";
+const tbody = document.getElementById('tbody');
+const emptyEl = document.getElementById('empty');
+const imeiSel = document.getElementById('imei');
+const limitSel = document.getElementById('limit');
+const loadBtn = document.getElementById('load');
+
+async function loadDevices() {
+  try {
+    const res = await fetch(`${API_BASE}/api/devices`);
+    const data = await res.json();
+    imeiSel.innerHTML = '<option value="">All devices</option>';
+    for (const d of data.devices) {
+      const opt = document.createElement('option');
+      opt.value = d.imei;
+      opt.textContent = d.imei;
+      imeiSel.appendChild(opt);
+    }
+  } catch (e) { console.error(e); }
+}
+
+function formatTime(ms) {
+  return new Date(ms).toISOString().replace('T', ' ').substring(0, 19);
+}
+
+function badgeClass(type) {
+  const t = type.toLowerCase();
+  if (t.includes('over')) return 'overspeed';
+  if (t === 'online') return 'online';
+  if (t === 'offline') return 'offline';
+  if (t === 'geofence') return 'geofence';
+  return '';
+}
+
+async function loadEvents() {
+  const imei = imeiSel.value;
+  const limit = limitSel.value;
+  const url = imei
+    ? `${API_BASE}/api/events?imei=${encodeURIComponent(imei)}&limit=${limit}`
+    : `${API_BASE}/api/events?limit=${limit}`;
+
+  loadBtn.textContent = 'Loading…';
+  loadBtn.disabled = true;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const events = data.events;
+
+    emptyEl.style.display = 'none';
+    tbody.innerHTML = '';
+
+    if (!events.length) {
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = 'No events found.';
+      return;
+    }
+
+    for (const e of events) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${formatTime(e.timestamp_ms)}</td>
+        <td>${e.imei}</td>
+        <td><span class="badge ${badgeClass(e.type)}">${e.type}</span></td>
+        <td>${e.message}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    console.error(e);
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Failed to load events.';
+  } finally {
+    loadBtn.textContent = 'Refresh';
+    loadBtn.disabled = false;
+  }
+}
+
+loadBtn.addEventListener('click', loadEvents);
+imeiSel.addEventListener('change', loadEvents);
+limitSel.addEventListener('change', loadEvents);
+
+loadDevices();
+loadEvents();
+</script>
+</body>
+</html>

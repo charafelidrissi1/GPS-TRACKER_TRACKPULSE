@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — GPS Data</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f1f5f9;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --online: #10b981;
+    --alert: #ef4444;
+    --amber: #f59e0b;
+  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ---------- Top bar ---------- */
+  .topbar { height: 58px; background: #0f172a; color: #fff; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; position: sticky; top: 0; z-index: 30; }
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 800; letter-spacing: 0.3px; font-size: 1.05rem; }
+  .brand .logo-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 rgba(16,185,129,.7); animation: brandPulse 2s infinite; }
+  @keyframes brandPulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.7); } 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
+  .nav a { color: #cbd5e1; text-decoration: none; font-size: 0.82rem; padding: 0.4rem 0.7rem; border-radius: 8px; transition: 0.15s; }
+  .nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .nav a.active { background: rgba(37,99,235,0.25); color: #fff; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.9rem; }
+  .live-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 600; padding: 0.3rem 0.65rem; border-radius: 999px; background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.35); }
+  .live-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  /* ---------- Layout ---------- */
+  main { padding: 18px 22px 44px; max-width: 1720px; margin: 0 auto; }
+  .page-head { display: flex; align-items: flex-end; gap: 0.9rem; margin-bottom: 14px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 1.2rem; letter-spacing: -0.01em; }
+  .page-head .sub { color: var(--muted); font-size: 0.8rem; margin-bottom: 2px; }
+  .page-head .count-note { margin-left: auto; color: var(--muted); font-size: 0.75rem; }
+
+  /* ---------- Filters ---------- */
+  .filters { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04); margin-bottom: 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  .field select, .field input { padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; background: #fff; color: var(--text); outline: none; transition: 0.15s; }
+  .field select:focus, .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+  .btn { padding: 0.52rem 1rem; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: 0.15s; }
+  .btn:hover { background: #1d4ed8; }
+  .btn:disabled { opacity: 0.6; cursor: wait; }
+  .btn.secondary { background: #e2e8f0; color: #334155; }
+  .btn.secondary:hover { background: #cbd5e1; }
+
+  /* ---------- Summary ---------- */
+  .summary { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+  .stat .label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 800; }
+  .stat .value { font-size: 1.25rem; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .value.blue { color: var(--accent); }
+  .stat .value.green { color: var(--online); }
+  .stat .value.red { color: var(--alert); }
+
+  /* ---------- Table ---------- */
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 4px 16px rgba(15,23,42,.06); overflow: auto; max-height: calc(100vh - 272px); }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1280px; }
+  thead th { position: sticky; top: 0; z-index: 2; background: #f8fafc; text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.055em; color: var(--muted); font-weight: 800; padding: 12px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody td { padding: 13px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.82rem; white-space: nowrap; vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #f8fafc; }
+  .ts { font-variant-numeric: tabular-nums; color: #334155; }
+  .cell { display: inline-flex; align-items: center; gap: 6px; }
+  .icon { width: 14px; height: 14px; flex: 0 0 auto; color: #94a3b8; }
+  .heading-arrow { display: inline-block; width: 14px; height: 14px; flex: 0 0 auto; color: #94a3b8; transition: transform 0.2s; }
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em; }
+  .badge.gps { background: #475569; color: #fff; }
+  .badge.overspeed { background: #fee2e2; color: #b91c1c; }
+  .badge.good { background: #dcfce7; color: #15803d; }
+  .badge.fair { background: #fef3c7; color: #b45309; }
+  .badge.weak { background: #fee2e2; color: #b91c1c; }
+  .speed-cell { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+  .speed-value { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.64rem; font-weight: 800; }
+  .pill.stopped { background: #f1f5f9; color: #64748b; }
+  .pill.slow { background: #dbeafe; color: #1d4ed8; }
+  .pill.moderate { background: #dcfce7; color: #15803d; }
+  .pill.fast { background: #fef3c7; color: #b45309; }
+  .pill.overspeed { background: #fee2e2; color: #b91c1c; }
+  .num { font-variant-numeric: tabular-nums; color: #334155; }
+  .muted { color: #94a3b8; }
+  .empty { padding: 56px 16px; text-align: center; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+
+  @media (max-width: 900px) {
+    main { padding: 14px 12px 32px; }
+    .nav { display: none; }
+    .summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    .table-wrap { max-height: calc(100vh - 320px); }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo-dot"></span>TrackPulse</div>
+  <div class="nav">
+    <a href="/map.html">Dashboard</a>
+    <a href="/reports" class="active">GPS Data</a>
+    <a href="/replay">Replay</a>
+    <a href="/tracks.html">Trip History</a>
+    <a href="/geofences.html">Geofences</a>
+    <a href="/events.html">Events</a>
+  </div>
+  <div class="topbar-right">
+    <span class="live-pill"><span class="dot"></span>Live data</span>
+  </div>
+</div>
+
+<main>
+  <div class="page-head">
+    <h1>GPS Data</h1>
+    <div class="sub">Full telemetry history from your trackers</div>
+    <div class="count-note" id="count-note">—</div>
+  </div>
+
+  <div class="filters">
+    <div class="field">
+      <label>Device IMEI</label>
+      <select id="imei"></select>
+    </div>
+    <div class="field">
+      <label>From</label>
+      <input type="date" id="from" />
+    </div>
+    <div class="field">
+      <label>To</label>
+      <input type="date" id="to" />
+    </div>
+    <div class="field">
+      <label>Limit</label>
+      <select id="limit">
+        <option value="100">100 rows</option>
+        <option value="500" selected>500 rows</option>
+        <option value="1000">1000 rows</option>
+        <option value="5000">5000 rows</option>
+      </select>
+    </div>
+    <button class="btn" id="load">Load Data</button>
+    <button class="btn secondary" id="today">Today</button>
+    <button class="btn secondary" id="week">Last 7 days</button>
+  </div>
+
+  <div class="summary">
+    <div class="stat"><div class="label">Points</div><div class="value blue" id="stat-points">0</div></div>
+    <div class="stat"><div class="label">Distance</div><div class="value" id="stat-distance">0 km</div></div>
+    <div class="stat"><div class="label">Max Speed</div><div class="value red" id="stat-maxspeed">0 km/h</div></div>
+    <div class="stat"><div class="label">Avg Speed</div><div class="value green" id="stat-avgspeed">0 km/h</div></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Event Type</th>
+          <th>Location</th>
+          <th>Speed</th>
+          <th>Heading</th>
+          <th>Altitude</th>
+          <th>Odometer</th>
+          <th>Fuel</th>
+          <th>Device Bat.</th>
+          <th>Vehicle Bat.</th>
+          <th>Signal</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="empty">Select a device and load data.</div>
+  </div>
+</main>
+
+<script>
+const API_BASE = "";
+
+const imeiSel = document.getElementById('imei');
+const fromInput = document.getElementById('from');
+const toInput = document.getElementById('to');
+const limitSel = document.getElementById('limit');
+const loadBtn = document.getElementById('load');
+const todayBtn = document.getElementById('today');
+const weekBtn = document.getElementById('week');
+const tbody = document.getElementById('tbody');
+const emptyEl = document.getElementById('empty');
+const countNote = document.getElementById('count-note');
+
+const statPoints = document.getElementById('stat-points');
+const statDistance = document.getElementById('stat-distance');
+const statMaxSpeed = document.getElementById('stat-maxspeed');
+const statAvgSpeed = document.getElementById('stat-avgspeed');
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function isoDate(d) {
+  return d.toISOString().split('T')[0];
+}
+
+function fmtTime(ms) {
+  return new Date(ms).toLocaleString('en-US', {
+    month: 'short', day: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+  });
+}
+
+function fmtNum(n, digits = 2) {
+  return Number(n).toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+}
+
+function haversineKm(a, b) {
+  const R = 6371.0088;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function speedInfo(speed) {
+  if (speed === 0) return { cls: 'stopped', label: 'Stopped' };
+  if (speed <= 20) return { cls: 'slow', label: 'Slow' };
+  if (speed <= 60) return { cls: 'moderate', label: 'Moderate' };
+  if (speed <= 80) return { cls: 'fast', label: 'Fast' };
+  return { cls: 'overspeed', label: 'Overspeed' };
+}
+
+function signalInfo(p) {
+  if (p.gsm_signal !== null && p.gsm_signal !== undefined) {
+    const s = Number(p.gsm_signal);
+    if (s >= 4) return { cls: 'good', label: 'Good' };
+    if (s === 3) return { cls: 'fair', label: 'Fair' };
+    return { cls: 'weak', label: 'Weak' };
+  }
+  const sats = Number(p.satellites || 0);
+  if (sats >= 6) return { cls: 'good', label: 'Good' };
+  if (sats >= 4) return { cls: 'fair', label: 'Fair' };
+  return { cls: 'weak', label: 'Weak' };
+}
+
+// Inline SVG icons (Feather-style)
+const ICONS = {
+  clock: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  pin: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+  gauge: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 18a9 9 0 1 1 17 0"/><path d="M12 14l4.5-4.5"/><circle cx="12" cy="14" r="1.2"/></svg>',
+  compass: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5 5-2z"/></svg>',
+  mountain: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20l6-11 4 7 2-3 6 7z"/></svg>',
+  road: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21L8 3M19 21L16 3"/><path d="M12 5v3M12 12v3M12 19v2"/></svg>',
+  fuel: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M4 12h10"/><path d="M16 8h2a2 2 0 0 1 2 2v6a2 2 0 0 0 2 2"/></svg>',
+  battery: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/><path d="M6 10v4M10 10v4"/></svg>',
+  plug: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0V8z"/><path d="M12 17v5"/></svg>',
+  signal: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20v-3M9 20v-6M14 20v-9M19 20V6"/></svg>',
+  arrow: '<svg class="heading-arrow" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l5 14-5-3-5 3 5-14z"/></svg>'
+};
+
+// ---------------------------------------------------------------------------
+// Date shortcuts
+// ---------------------------------------------------------------------------
+function setRange(days) {
+  const to = new Date();
+  const from = new Date(Date.now() - days * 86400000);
+  fromInput.value = isoDate(from);
+  toInput.value = isoDate(to);
+}
+
+toInput.value = isoDate(new Date());
+fromInput.value = isoDate(new Date(Date.now() - 7 * 86400000));
+
+todayBtn.addEventListener('click', () => {
+  setRange(0);
+  loadData();
+});
+weekBtn.addEventListener('click', () => {
+  setRange(7);
+  loadData();
+});
+
+// ---------------------------------------------------------------------------
+// Devices
+// ---------------------------------------------------------------------------
+async function loadDevices() {
+  try {
+    const res = await fetch(`${API_BASE}/api/devices`);
+    const data = await res.json();
+    imeiSel.innerHTML = '';
+    if (!data.devices.length) {
+      const opt = document.createElement('option');
+      opt.textContent = 'No devices';
+      opt.value = '';
+      imeiSel.appendChild(opt);
+      return;
+    }
+    for (const d of data.devices) {
+      const opt = document.createElement('option');
+      opt.value = d.imei;
+      opt.textContent = d.imei + (d.online ? '  ● online' : '');
+      imeiSel.appendChild(opt);
+    }
+  } catch (e) {
+    console.error('loadDevices', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Load + render
+// ---------------------------------------------------------------------------
+let lastPoints = [];
+
+async function loadData() {
+  const imei = imeiSel.value;
+  if (!imei) return;
+
+  const fromMs = new Date(fromInput.value + 'T00:00:00Z').getTime();
+  const toMs = new Date(toInput.value + 'T23:59:59Z').getTime();
+  const limit = limitSel.value || 500;
+
+  loadBtn.textContent = 'Loading…';
+  loadBtn.disabled = true;
+
+  try {
+    const url = `${API_BASE}/api/tracks?imei=${encodeURIComponent(imei)}&from=${fromMs}&to=${toMs}&limit=${limit}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const points = data.positions || [];
+    lastPoints = points;
+
+    // Cumulative fallback odometer for devices that do not report AVL ID 16.
+    let cumulative = 0;
+    for (let i = 0; i < points.length; i++) {
+      if (i > 0) cumulative += haversineKm(points[i - 1], points[i]);
+      points[i]._rangeKm = cumulative;
+    }
+
+    renderSummary(points);
+    renderTable(points);
+    countNote.textContent = `${points.length} records · ${imei}`;
+  } catch (e) {
+    console.error(e);
+    tbody.innerHTML = '';
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Failed to load GPS data.';
+  } finally {
+    loadBtn.textContent = 'Load Data';
+    loadBtn.disabled = false;
+  }
+}
+
+function renderSummary(points) {
+  statPoints.textContent = points.length.toLocaleString('en-US');
+
+  if (!points.length) {
+    statDistance.textContent = '0 km';
+    statMaxSpeed.textContent = '0 km/h';
+    statAvgSpeed.textContent = '0 km/h';
+    return;
+  }
+
+  // Prefer device odometer (AVL 16) for the range distance.
+  const withOdo = points.filter(p => p.odometer_m !== null && p.odometer_m !== undefined);
+  let distanceKm = points[points.length - 1]._rangeKm || 0;
+  if (withOdo.length >= 2) {
+    const delta = (withOdo[withOdo.length - 1].odometer_m - withOdo[0].odometer_m) / 1000;
+    if (delta >= 0) distanceKm = delta;
+  }
+
+  const maxSpeed = Math.max(...points.map(p => Number(p.speed || 0)));
+  const moving = points.filter(p => Number(p.speed) > 0);
+  const avgSpeed = moving.length
+    ? moving.reduce((sum, p) => sum + Number(p.speed), 0) / moving.length
+    : 0;
+
+  statDistance.textContent = `${fmtNum(distanceKm, 2)} km`;
+  statMaxSpeed.textContent = `${maxSpeed} km/h`;
+  statAvgSpeed.textContent = `${fmtNum(avgSpeed, 1)} km/h`;
+}
+
+function renderTable(points) {
+  tbody.innerHTML = '';
+
+  if (!points.length) {
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'No GPS records found for this range.';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  // Newest first, like the reference report.
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = points[i];
+    const speed = Number(p.speed || 0);
+    const sp = speedInfo(speed);
+    const sig = signalInfo(p);
+    const overspeed = speed > 80;
+
+    const odometer = (p.odometer_m !== null && p.odometer_m !== undefined)
+      ? `${fmtNum(p.odometer_m / 1000, 2)} km`
+      : `<span title="Estimated distance within the selected range">~${fmtNum(p._rangeKm || 0, 2)} km</span>`;
+
+    const fuel = (p.fuel_level !== null && p.fuel_level !== undefined)
+      ? `${fmtNum(p.fuel_level, 2)} L`
+      : '<span class="muted">—</span>';
+
+    const deviceBat = (p.device_battery_mv !== null && p.device_battery_mv !== undefined)
+      ? `${fmtNum(p.device_battery_mv / 1000, 2)} V`
+      : '<span class="muted">—</span>';
+
+    const vehicleBat = (p.vehicle_battery_mv !== null && p.vehicle_battery_mv !== undefined)
+      ? `${fmtNum(p.vehicle_battery_mv / 1000, 2)} V`
+      : '<span class="muted">—</span>';
+
+    const angle = Number(p.angle || 0);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="cell ts">${ICONS.clock}${fmtTime(p.timestamp_ms)}</span></td>
+      <td><span class="badge ${overspeed ? 'overspeed' : 'gps'}">${overspeed ? 'Overspeed' : 'GPS Update'}</span></td>
+      <td><span class="cell">${ICONS.pin}${Number(p.latitude).toFixed(6)}, ${Number(p.longitude).toFixed(6)}</span></td>
+      <td>
+        <div class="speed-cell">
+          <span class="speed-value">${ICONS.gauge}${speed}</span>
+          <span class="pill ${sp.cls}">${sp.label}</span>
+        </div>
+      </td>
+      <td><span class="cell">${ICONS.arrow.replace('class="heading-arrow"', `class="heading-arrow" style="transform: rotate(${angle}deg)"`)}${angle}°</span></td>
+      <td><span class="cell">${ICONS.mountain}${p.altitude}m</span></td>
+      <td><span class="cell">${ICONS.road}${odometer}</span></td>
+      <td><span class="cell">${ICONS.fuel}${fuel}</span></td>
+      <td><span class="cell">${ICONS.battery}${deviceBat}</span></td>
+      <td><span class="cell">${ICONS.plug}${vehicleBat}</span></td>
+      <td><span class="cell">${ICONS.signal}<span class="badge ${sig.cls}">${sig.label}</span></span></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+loadBtn.addEventListener('click', loadData);
+imeiSel.addEventListener('change', loadData);
+limitSel.addEventListener('change', loadData);
+
+(async function init() {
+  await loadDevices();
+  if (imeiSel.value) loadData();
+})();
+</script>
+</body>
+</html>

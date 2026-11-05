@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Replay</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f1f5f9;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --online: #10b981;
+    --alert: #ef4444;
+  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+  /* ---------- Top bar ---------- */
+  .topbar { height: 58px; background: #0f172a; color: #fff; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; position: relative; z-index: 30; }
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 800; letter-spacing: 0.3px; font-size: 1.05rem; }
+  .brand .logo-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 rgba(16,185,129,.7); animation: brandPulse 2s infinite; }
+  @keyframes brandPulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.7); } 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
+  .nav a { color: #cbd5e1; text-decoration: none; font-size: 0.82rem; padding: 0.4rem 0.7rem; border-radius: 8px; transition: 0.15s; }
+  .nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .nav a.active { background: rgba(37,99,235,0.25); color: #fff; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.8rem; }
+  .hint-pill { font-size: 0.7rem; color: #94a3b8; }
+  .hint-pill kbd { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 1px 5px; font-size: 0.65rem; }
+
+  /* ---------- Map ---------- */
+  #map { position: fixed; top: 58px; left: 0; right: 0; bottom: 0; z-index: 1; }
+
+  /* ---------- Load panel ---------- */
+  .load-panel { position: fixed; top: 74px; left: 14px; z-index: 900; width: 306px; background: rgba(255,255,255,0.96); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 8px 28px rgba(15,23,42,.16); padding: 14px; }
+  .load-panel .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .load-panel h2 { font-size: 0.9rem; font-weight: 800; }
+  .load-panel .panel-head button { border: none; background: #f1f5f9; color: #64748b; border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 0.8rem; }
+  .load-panel .panel-head button:hover { background: #e2e8f0; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 9px; }
+  .field label { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  .field select, .field input { width: 100%; padding: 0.46rem 0.55rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.8rem; background: #fff; color: var(--text); outline: none; transition: 0.15s; }
+  .field select:focus, .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+  .date-row { display: flex; gap: 8px; }
+  .date-row .field { flex: 1; }
+  .btn { width: 100%; padding: 0.55rem 1rem; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: 0.15s; }
+  .btn:hover { background: #1d4ed8; }
+  .btn:disabled { opacity: 0.6; cursor: wait; }
+  .route-stats { margin-top: 10px; padding-top: 10px; border-top: 1px solid #f1f5f9; font-size: 0.72rem; color: var(--muted); line-height: 1.5; display: none; }
+  .route-stats.visible { display: block; }
+  .route-stats b { color: var(--text); }
+
+  /* ---------- Playback bar ---------- */
+  .playback { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 900; width: min(1120px, calc(100% - 110px)); background: rgba(255,255,255,0.97); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 32px rgba(15,23,42,.18); padding: 11px 16px; display: none; align-items: center; gap: 13px; }
+  .playback.visible { display: flex; }
+  .play-btn { width: 46px; height: 46px; border-radius: 50%; border: none; background: var(--accent); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; box-shadow: 0 4px 12px rgba(37,99,235,.35); transition: 0.15s; }
+  .play-btn:hover { background: #1d4ed8; transform: scale(1.04); }
+  .play-btn svg { width: 20px; height: 20px; }
+  .step-btn { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: #fff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .step-btn:hover { background: #f1f5f9; color: var(--text); }
+  .step-btn svg { width: 14px; height: 14px; }
+  .timeline { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 2px; }
+  .current-time { font-size: 0.72rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .timeline input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; height: 18px; }
+  .time-row { display: flex; justify-content: space-between; font-size: 0.66rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .telemetry { display: flex; gap: 14px; padding: 0 4px 0 13px; border-left: 1px solid var(--border); flex: 0 0 auto; }
+  .chip label { display: block; font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 800; }
+  .chip span { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .speed-select { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
+  .speed-select label { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 800; }
+  .speed-select select { padding: 0.32rem 0.4rem; border: 1px solid var(--border); border-radius: 7px; font-size: 0.76rem; background: #fff; color: var(--text); font-weight: 700; outline: none; }
+  .follow-btn { border: none; border-radius: 999px; padding: 0.42rem 0.8rem; font-size: 0.72rem; font-weight: 700; background: #e2e8f0; color: #475569; cursor: pointer; flex: 0 0 auto; transition: 0.15s; }
+  .follow-btn.on { background: rgba(16,185,129,0.15); color: #047857; }
+  .follow-btn:hover { filter: brightness(0.97); }
+
+  /* ---------- Map markers ---------- */
+  .route-end { width: 24px; height: 24px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(15,23,42,.35); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; }
+  .route-end.start { background: var(--online); }
+  .route-end.end { background: var(--alert); }
+  .car-marker { position: relative; width: 32px; height: 32px; border-radius: 50%; background: var(--accent); border: 3px solid #fff; box-shadow: 0 3px 12px rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; }
+  .car-marker .arrow { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 14px solid #fff; transform-origin: 50% 65%; }
+  .car-marker::after { content: ""; position: absolute; inset: -7px; border-radius: 50%; border: 2px solid rgba(37,99,235,.5); animation: carPulse 1.8s infinite; }
+  @keyframes carPulse { 0% { transform: scale(0.7); opacity: 0.8; } 70% { transform: scale(1.35); opacity: 0; } 100% { opacity: 0; } }
+
+  .empty-note { display: none; margin-top: 10px; padding: 9px 10px; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 0.74rem; line-height: 1.4; }
+  .empty-note.visible { display: block; }
+
+  @media (max-width: 1000px) {
+    .nav { display: none; }
+    .telemetry { display: none; }
+    .playback { width: calc(100% - 24px); bottom: 10px; gap: 9px; }
+    .load-panel { width: calc(100% - 28px); max-width: 306px; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo-dot"></span>TrackPulse</div>
+  <div class="nav">
+    <a href="/map.html">Dashboard</a>
+    <a href="/reports">GPS Data</a>
+    <a href="/tracks.html">Trip History</a>
+    <a href="/replay" class="active">Replay</a>
+    <a href="/geofences.html">Geofences</a>
+    <a href="/events.html">Events</a>
+  </div>
+  <div class="topbar-right">
+    <span class="hint-pill"><kbd>Space</kbd> play · <kbd>←</kbd><kbd>→</kbd> step</span>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div class="load-panel">
+  <div class="panel-head">
+    <h2>Route Replay</h2>
+    <button id="collapse" title="Hide panel">−</button>
+  </div>
+  <div id="panel-body">
+    <div class="field">
+      <label>Device IMEI</label>
+      <select id="imei"></select>
+    </div>
+    <div class="date-row">
+      <div class="field">
+        <label>From</label>
+        <input type="date" id="from" />
+      </div>
+      <div class="field">
+        <label>To</label>
+        <input type="date" id="to" />
+      </div>
+    </div>
+    <button class="btn" id="load">Load Route</button>
+    <div class="route-stats" id="route-stats"></div>
+    <div class="empty-note" id="empty-note"></div>
+  </div>
+</div>
+
+<div class="playback" id="playback">
+  <button class="play-btn" id="play" title="Play / pause (Space)">
+    <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+  </button>
+  <button class="step-btn" id="prev" title="Previous point (←)">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14l-11-7z"/></svg>
+  </button>
+  <button class="step-btn" id="next" title="Next point (→)">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
+  </button>
+
+  <div class="timeline">
+    <div class="current-time" id="current-time">—</div>
+    <input type="range" id="seek" min="0" max="1000" value="0" />
+    <div class="time-row"><span id="elapsed">0:00</span><span id="total">0:00</span></div>
+  </div>
+
+  <div class="telemetry">
+    <div class="chip"><label>Speed</label><span id="t-speed">–</span></div>
+    <div class="chip"><label>Heading</label><span id="t-heading">–</span></div>
+    <div class="chip"><label>Altitude</label><span id="t-alt">–</span></div>
+  </div>
+
+  <div class="speed-select">
+    <label>Speed</label>
+    <select id="speed">
+      <option value="0.5">0.5×</option>
+      <option value="1">1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+      <option value="8">8×</option>
+      <option value="16">16×</option>
+      <option value="32">32×</option>
+      <option value="64">64×</option>
+    </select>
+  </div>
+
+  <button class="follow-btn on" id="follow">Following</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const API_BASE = "";
+
+// ---------------------------------------------------------------------------
+// Map
+// ---------------------------------------------------------------------------
+const map = L.map('map', { zoomControl: false }).setView([52.52, 13.405], 10);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
+
+const fullLine = L.polyline([], { color: '#93c5fd', weight: 4, opacity: 0.85 }).addTo(map);
+const traveledLine = L.polyline([], { color: '#2563eb', weight: 4, opacity: 0.95 }).addTo(map);
+
+const startIcon = L.divIcon({
+  className: '',
+  html: '<div class="route-end start">S</div>',
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+});
+const endIcon = L.divIcon({
+  className: '',
+  html: '<div class="route-end end">E</div>',
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+});
+
+function carIcon(heading) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="car-marker"><div class="arrow" style="transform: rotate(${Number(heading) || 0}deg)"></div></div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+}
+
+let startMarker = null;
+let endMarker = null;
+let carMarker = null;
+
+// ---------------------------------------------------------------------------
+// DOM
+// ---------------------------------------------------------------------------
+const imeiSel = document.getElementById('imei');
+const fromInput = document.getElementById('from');
+const toInput = document.getElementById('to');
+const loadBtn = document.getElementById('load');
+const routeStats = document.getElementById('route-stats');
+const emptyNote = document.getElementById('empty-note');
+
+const playback = document.getElementById('playback');
+const playBtn = document.getElementById('play');
+const playIcon = document.getElementById('play-icon');
+const prevBtn = document.getElementById('prev');
+const nextBtn = document.getElementById('next');
+const seek = document.getElementById('seek');
+const currentTimeEl = document.getElementById('current-time');
+const elapsedEl = document.getElementById('elapsed');
+const totalEl = document.getElementById('total');
+const speedSel = document.getElementById('speed');
+const followBtn = document.getElementById('follow');
+const tSpeed = document.getElementById('t-speed');
+const tHeading = document.getElementById('t-heading');
+const tAlt = document.getElementById('t-alt');
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const state = {
+  points: [],
+  startMs: 0,
+  endMs: 0,
+  cursorMs: 0,
+  playing: false,
+  speed: 1,
+  follow: true,
+  raf: null,
+  lastFrame: 0,
+  lastTrailIdx: -1,
+  seeking: false,
+};
+
+const PLAY_ICON = '<path d="M8 5v14l11-7z"/>';
+const PAUSE_ICON = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function isoDate(d) {
+  return d.toISOString().split('T')[0];
+}
+
+function fmtClock(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function fmtDateTime(ms) {
+  return new Date(ms).toLocaleString('en-US', {
+    month: 'short', day: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+  });
+}
+
+function compass(angle) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round((Number(angle) || 0) / 45) % 8];
+}
+
+function haversineKm(a, b) {
+  const R = 6371.0088;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function routeDistanceKm(points) {
+  const withOdo = points.filter(p => p.odometer_m !== null && p.odometer_m !== undefined);
+  if (withOdo.length >= 2) {
+    const delta = (withOdo[withOdo.length - 1].odometer_m - withOdo[0].odometer_m) / 1000;
+    if (delta >= 0) return delta;
+  }
+  let km = 0;
+  for (let i = 1; i < points.length; i++) km += haversineKm(points[i - 1], points[i]);
+  return km;
+}
+
+function pickAutoSpeed(durationSec) {
+  const options = [0.5, 1, 2, 4, 8, 16, 32, 64];
+  // Aim for a replay of roughly 30–120 seconds.
+  for (const s of options) {
+    if (durationSec / s <= 90) return s;
+  }
+  return 64;
+}
+
+function setFollow(on) {
+  state.follow = on;
+  followBtn.classList.toggle('on', on);
+  followBtn.textContent = on ? 'Following' : 'Follow';
+}
+followBtn.addEventListener('click', () => setFollow(!state.follow));
+map.on('dragstart', () => setFollow(false));
+
+// ---------------------------------------------------------------------------
+// Load route
+// ---------------------------------------------------------------------------
+async function loadDevices() {
+  try {
+    const res = await fetch(`${API_BASE}/api/devices`);
+    const data = await res.json();
+    imeiSel.innerHTML = '';
+    if (!data.devices.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No devices';
+      imeiSel.appendChild(opt);
+      return;
+    }
+    for (const d of data.devices) {
+      const opt = document.createElement('option');
+      opt.value = d.imei;
+      opt.textContent = d.imei + (d.online ? '  ● online' : '');
+      imeiSel.appendChild(opt);
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get('imei');
+    if (wanted && data.devices.some(d => d.imei === wanted)) {
+      imeiSel.value = wanted;
+    }
+  } catch (e) {
+    console.error('loadDevices', e);
+  }
+}
+
+function clearRoute() {
+  pause();
+  state.points = [];
+  state.lastTrailIdx = -1;
+  fullLine.setLatLngs([]);
+  traveledLine.setLatLngs([]);
+  if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+  if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
+  if (carMarker) { map.removeLayer(carMarker); carMarker = null; }
+  playback.classList.remove('visible');
+  routeStats.classList.remove('visible');
+  emptyNote.classList.remove('visible');
+}
+
+async function loadRoute() {
+  const imei = imeiSel.value;
+  if (!imei) return;
+
+  const fromMs = new Date(fromInput.value + 'T00:00:00Z').getTime();
+  const toMs = new Date(toInput.value + 'T23:59:59Z').getTime();
+
+  clearRoute();
+  loadBtn.textContent = 'Loading…';
+  loadBtn.disabled = true;
+
+  try {
+    const url = `${API_BASE}/api/tracks?imei=${encodeURIComponent(imei)}&from=${fromMs}&to=${toMs}&limit=5000`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const points = (data.positions || []).slice().sort((a, b) => a.timestamp_ms - b.timestamp_ms);
+
+    if (!points.length) {
+      emptyNote.textContent = 'No positions found for this device and date range. Try a wider range.';
+      emptyNote.classList.add('visible');
+      return;
+    }
+
+    state.points = points;
+    state.startMs = points[0].timestamp_ms;
+    state.endMs = points[points.length - 1].timestamp_ms;
+    state.cursorMs = state.startMs;
+    state.lastTrailIdx = -1;
+
+    const latlngs = points.map(p => [p.latitude, p.longitude]);
+    fullLine.setLatLngs(latlngs);
+    traveledLine.setLatLngs([]);
+
+    startMarker = L.marker(latlngs[0], { icon: startIcon, title: 'Start' }).addTo(map);
+    endMarker = L.marker(latlngs[latlngs.length - 1], { icon: endIcon, title: 'End' }).addTo(map);
+    carMarker = L.marker(latlngs[0], { icon: carIcon(points[0].angle) }).addTo(map);
+
+    if (latlngs.length === 1) {
+      map.setView(latlngs[0], 15);
+    } else {
+      map.fitBounds(fullLine.getBounds(), { padding: [90, 90], maxZoom: 16 });
+    }
+
+    const durationSec = Math.max(0, (state.endMs - state.startMs) / 1000);
+    const autoSpeed = pickAutoSpeed(durationSec);
+    speedSel.value = String(autoSpeed);
+    state.speed = autoSpeed;
+
+    const distanceKm = routeDistanceKm(points);
+    routeStats.innerHTML = `<b>${points.length}</b> points · <b>${distanceKm.toFixed(2)} km</b> · <b>${fmtClock(durationSec * 1000)}</b> duration`;
+    routeStats.classList.add('visible');
+    emptyNote.classList.remove('visible');
+    playback.classList.add('visible');
+
+    renderAt(state.startMs);
+    updatePlayButton();
+  } catch (e) {
+    console.error(e);
+    emptyNote.textContent = 'Failed to load route. Check the server connection.';
+    emptyNote.classList.add('visible');
+  } finally {
+    loadBtn.textContent = 'Load Route';
+    loadBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Playback
+// ---------------------------------------------------------------------------
+function locate(ms) {
+  const pts = state.points;
+  if (!pts.length) return null;
+  if (ms <= pts[0].timestamp_ms) {
+    return { idx: 0, lat: pts[0].latitude, lon: pts[0].longitude, point: pts[0] };
+  }
+  const lastIdx = pts.length - 1;
+  if (ms >= pts[lastIdx].timestamp_ms) {
+    const p = pts[lastIdx];
+    return { idx: lastIdx, lat: p.latitude, lon: p.longitude, point: p };
+  }
+
+  let lo = 0;
+  let hi = lastIdx;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].timestamp_ms <= ms) lo = mid;
+    else hi = mid;
+  }
+
+  const a = pts[lo];
+  const b = pts[hi];
+  const span = b.timestamp_ms - a.timestamp_ms;
+  const t = span > 0 ? (ms - a.timestamp_ms) / span : 0;
+  return {
+    idx: lo,
+    lat: a.latitude + (b.latitude - a.latitude) * t,
+    lon: a.longitude + (b.longitude - a.longitude) * t,
+    point: a,
+  };
+}
+
+function renderAt(ms) {
+  if (!state.points.length || !carMarker) return;
+  const loc = locate(ms);
+  if (!loc) return;
+
+  const latlng = [loc.lat, loc.lon];
+  carMarker.setLatLng(latlng);
+  carMarker.setIcon(carIcon(loc.point.angle));
+
+  // Update the traveled portion only when the segment changes.
+  if (loc.idx !== state.lastTrailIdx) {
+    state.lastTrailIdx = loc.idx;
+    const trail = state.points.slice(0, loc.idx + 1).map(p => [p.latitude, p.longitude]);
+    trail.push(latlng);
+    traveledLine.setLatLngs(trail);
+  }
+
+  tSpeed.textContent = `${loc.point.speed} km/h`;
+  tHeading.textContent = `${compass(loc.point.angle)} ${loc.point.angle}°`;
+  tAlt.textContent = `${loc.point.altitude} m`;
+  currentTimeEl.textContent = fmtDateTime(ms);
+
+  const span = Math.max(1, state.endMs - state.startMs);
+  elapsedEl.textContent = fmtClock(ms - state.startMs);
+  totalEl.textContent = fmtClock(state.endMs - state.startMs);
+  if (!state.seeking) seek.value = String(Math.round(((ms - state.startMs) / span) * 1000));
+
+  if (state.follow) map.panTo(latlng, { animate: false });
+}
+
+function updatePlayButton() {
+  playIcon.innerHTML = state.playing ? PAUSE_ICON : PLAY_ICON;
+  playBtn.title = state.playing ? 'Pause (Space)' : 'Play (Space)';
+}
+
+function tick(now) {
+  if (!state.playing) return;
+  if (!state.lastFrame) state.lastFrame = now;
+  const dt = now - state.lastFrame;
+  state.lastFrame = now;
+
+  state.cursorMs += dt * state.speed;
+
+  if (state.cursorMs >= state.endMs) {
+    state.cursorMs = state.endMs;
+    state.playing = false;
+    updatePlayButton();
+  }
+
+  renderAt(state.cursorMs);
+
+  if (state.playing) state.raf = requestAnimationFrame(tick);
+}
+
+function play() {
+  if (!state.points.length) return;
+  if (state.cursorMs >= state.endMs) state.cursorMs = state.startMs;
+  state.playing = true;
+  state.lastFrame = 0;
+  updatePlayButton();
+  cancelAnimationFrame(state.raf);
+  state.raf = requestAnimationFrame(tick);
+}
+
+function pause() {
+  state.playing = false;
+  cancelAnimationFrame(state.raf);
+  updatePlayButton();
+}
+
+playBtn.addEventListener('click', () => (state.playing ? pause() : play()));
+prevBtn.addEventListener('click', () => stepPoint(-1));
+nextBtn.addEventListener('click', () => stepPoint(1));
+
+function stepPoint(dir) {
+  if (!state.points.length) return;
+  pause();
+  const loc = locate(state.cursorMs);
+  const idx = Math.min(state.points.length - 1, Math.max(0, loc.idx + dir));
+  state.cursorMs = state.points[idx].timestamp_ms;
+  renderAt(state.cursorMs);
+}
+
+seek.addEventListener('input', () => {
+  if (!state.points.length) return;
+  state.seeking = true;
+  pause();
+  const span = Math.max(1, state.endMs - state.startMs);
+  state.cursorMs = state.startMs + (Number(seek.value) / 1000) * span;
+  renderAt(state.cursorMs);
+});
+seek.addEventListener('change', () => { state.seeking = false; });
+
+speedSel.addEventListener('change', () => {
+  state.speed = Number(speedSel.value);
+});
+
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    state.playing ? pause() : play();
+  } else if (e.code === 'ArrowRight') {
+    e.preventDefault();
+    stepPoint(1);
+  } else if (e.code === 'ArrowLeft') {
+    e.preventDefault();
+    stepPoint(-1);
+  }
+});
+
+// Collapse the load panel to see more of the map.
+const collapseBtn = document.getElementById('collapse');
+const panelBody = document.getElementById('panel-body');
+collapseBtn.addEventListener('click', () => {
+  const hidden = panelBody.style.display === 'none';
+  panelBody.style.display = hidden ? 'block' : 'none';
+  collapseBtn.textContent = hidden ? '−' : '+';
+});
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+toInput.value = isoDate(new Date());
+fromInput.value = isoDate(new Date(Date.now() - 86400000));
+
+imeiSel.addEventListener('change', loadRoute);
+loadBtn.addEventListener('click', loadRoute);
+
+(async function init() {
+  await loadDevices();
+  if (imeiSel.value) loadRoute();
+})();
+</script>
+</body>
+</html>
