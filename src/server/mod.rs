@@ -20,6 +20,11 @@ use crate::ws::ServerMessage;
 /// Address the TCP listener binds to.
 pub const LISTEN_ADDR: &str = "0.0.0.0:8082";
 
+/// TCP listen address, overridable with `GPS_TRACKER_TCP_ADDR` (useful for tests).
+pub fn listen_addr() -> String {
+    std::env::var("GPS_TRACKER_TCP_ADDR").unwrap_or_else(|_| LISTEN_ADDR.to_string())
+}
+
 /// Speed threshold (km/h) above which an overspeed event is generated.
 const OVERSPEED_KMH: u16 = 80;
 
@@ -35,8 +40,9 @@ pub async fn run(
     storage: Arc<Mutex<SqliteStorage>>,
     tx: broadcast::Sender<ServerMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind(LISTEN_ADDR).await?;
-    println!("Teltonika TCP server listening on {}", LISTEN_ADDR);
+    let listen_addr = listen_addr();
+    let listener = TcpListener::bind(&listen_addr).await?;
+    println!("Teltonika TCP server listening on {}", listen_addr);
 
     let geofence_state: GeofenceState = Arc::new(Mutex::new(HashMap::new()));
 
@@ -191,11 +197,16 @@ async fn handle_connection(
                     gsm_signal: io.get(&21).copied(),
                 };
 
-                // Persist position (updates device heartbeat)
-                {
+                // Persist position (updates device heartbeat) and read the
+                // current overspeed threshold from platform settings.
+                let overspeed_kmh = {
                     let guard = storage.lock().unwrap();
                     let _ = guard.insert_position(&pos);
-                }
+                    guard
+                        .get_settings()
+                        .map(|settings| settings.overspeed_kmh)
+                        .unwrap_or(OVERSPEED_KMH)
+                };
 
                 println!(
                     "[{}] position lat={:.6} lon={:.6} speed={}kmh sats={}",
@@ -206,7 +217,7 @@ async fn handle_connection(
                 let _ = tx.send(ServerMessage::Position(pos.clone()));
 
                 // Overspeed detection
-                if pos.speed > OVERSPEED_KMH {
+                if pos.speed > overspeed_kmh {
                     emit_event(
                         &storage,
                         &tx,
@@ -214,7 +225,7 @@ async fn handle_connection(
                         "overspeed",
                         &format!(
                             "Overspeed: {} km/h exceeds limit {} km/h",
-                            pos.speed, OVERSPEED_KMH
+                            pos.speed, overspeed_kmh
                         ),
                         pos.timestamp_ms,
                     );

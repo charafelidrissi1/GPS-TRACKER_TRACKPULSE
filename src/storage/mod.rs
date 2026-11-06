@@ -3,10 +3,16 @@
 
 use chrono::{NaiveDateTime, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Path to the SQLite database file.
 pub const DB_PATH: &str = "gps-tracker.db";
+
+/// Database path, overridable with `GPS_TRACKER_DB` (useful for tests).
+pub fn db_path() -> String {
+    std::env::var("GPS_TRACKER_DB").unwrap_or_else(|_| DB_PATH.to_string())
+}
 
 /// A GPS position record.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -78,6 +84,53 @@ pub struct Event {
     pub created_at: String,
 }
 
+/// A platform user account.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct User {
+    pub id: i64,
+    pub username: String,
+    pub role: String,
+    pub active: bool,
+    pub created_at: String,
+    pub last_login: Option<String>,
+}
+
+/// User record plus password hash, used only during authentication.
+#[derive(Debug, Clone)]
+pub struct UserAuth {
+    pub user: User,
+    pub password_hash: String,
+}
+
+/// Platform-wide settings.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppSettings {
+    pub platform_name: String,
+    pub overspeed_kmh: u16,
+    pub online_timeout_seconds: i64,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            platform_name: "TrackPulse".to_string(),
+            overspeed_kmh: 80,
+            online_timeout_seconds: 300,
+        }
+    }
+}
+
+fn row_to_user(row: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
+    Ok(User {
+        id: row.get(0)?,
+        username: row.get(1)?,
+        role: row.get(2)?,
+        active: row.get::<_, i64>(3)? != 0,
+        created_at: row.get(4)?,
+        last_login: row.get(5)?,
+    })
+}
+
 /// Add a column to an existing table if it is missing (simple migration).
 fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> rusqlite::Result<()> {
     let exists = {
@@ -117,6 +170,7 @@ impl SqliteStorage {
         )?;
 
         conn.pragma_update(None, "journal_mode", &"WAL")?;
+        conn.pragma_update(None, "foreign_keys", &"ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         Self::migrate(&conn)?;
@@ -172,6 +226,32 @@ impl SqliteStorage {
 
             CREATE INDEX IF NOT EXISTS idx_events_imei_time
                 ON events (imei, timestamp_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_login TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at INTEGER NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires
+                ON sessions (expires_at);
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             ",
         )?;
 
@@ -224,9 +304,9 @@ impl SqliteStorage {
     }
 
     /// Return all devices with online/offline status and their latest position.
-    /// A device is "online" if it sent a position within the last ONLINE_WINDOW_SECONDS.
+    /// A device is "online" if it sent a position within the configured timeout.
     pub fn get_devices(&self) -> rusqlite::Result<Vec<Device>> {
-        const ONLINE_WINDOW_SECONDS: i64 = 300; // 5 minutes
+        let online_window = self.get_settings()?.online_timeout_seconds;
         let now = Utc::now().timestamp();
 
         let mut stmt = self.conn.prepare(
@@ -254,7 +334,7 @@ impl SqliteStorage {
 
             let online = NaiveDateTime::parse_from_str(&last_seen, "%Y-%m-%d %H:%M:%S")
                 .ok()
-                .map(|ndt| now - ndt.and_utc().timestamp() <= ONLINE_WINDOW_SECONDS)
+                .map(|ndt| now - ndt.and_utc().timestamp() <= online_window)
                 .unwrap_or(false);
 
             let latest = match row.get::<_, Option<i64>>(3)? {
@@ -294,13 +374,14 @@ impl SqliteStorage {
 
     /// Aggregate platform statistics for the dashboard.
     pub fn get_stats(&self) -> rusqlite::Result<Stats> {
+        let online_window = self.get_settings()?.online_timeout_seconds;
         let devices_total = self
             .conn
             .query_row("SELECT COUNT(*) FROM devices", [], |r| r.get(0))?;
         let devices_online = self.conn.query_row(
             "SELECT COUNT(*) FROM devices
-             WHERE (strftime('%s','now') - strftime('%s', last_seen)) <= 300",
-            [],
+             WHERE (strftime('%s','now') - strftime('%s', last_seen)) <= ?1",
+            params![online_window],
             |r| r.get(0),
         )?;
         let positions_total = self
@@ -328,6 +409,215 @@ impl SqliteStorage {
             positions_today,
             events_today,
         })
+    }
+
+    // ------------------------------------------------------------------
+    // Users and sessions
+    // ------------------------------------------------------------------
+
+    pub fn user_count(&self) -> rusqlite::Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+    }
+
+    pub fn create_user(
+        &self,
+        username: &str,
+        password_hash: &str,
+        role: &str,
+    ) -> rusqlite::Result<i64> {
+        self.conn.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?1, ?2, ?3)",
+            params![username, password_hash, role],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn find_user_by_username(&self, username: &str) -> rusqlite::Result<Option<UserAuth>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, username, role, active, created_at, last_login, password_hash
+             FROM users WHERE username = ?1",
+        )?;
+        stmt.query_row(params![username], |row| {
+            Ok(UserAuth {
+                user: row_to_user(row)?,
+                password_hash: row.get(6)?,
+            })
+        })
+        .optional()
+    }
+
+    pub fn get_user(&self, id: i64) -> rusqlite::Result<Option<User>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, username, role, active, created_at, last_login
+             FROM users WHERE id = ?1",
+        )?;
+        stmt.query_row(params![id], row_to_user).optional()
+    }
+
+    pub fn list_users(&self) -> rusqlite::Result<Vec<User>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, username, role, active, created_at, last_login
+             FROM users ORDER BY created_at ASC, id ASC",
+        )?;
+        let rows = stmt.query_map([], row_to_user)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn update_user(
+        &self,
+        id: i64,
+        role: Option<&str>,
+        active: Option<bool>,
+    ) -> rusqlite::Result<()> {
+        if let Some(role) = role {
+            self.conn.execute(
+                "UPDATE users SET role = ?1 WHERE id = ?2",
+                params![role, id],
+            )?;
+        }
+        if let Some(active) = active {
+            self.conn.execute(
+                "UPDATE users SET active = ?1 WHERE id = ?2",
+                params![active as i64, id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn update_user_password(&self, id: i64, password_hash: &str) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "UPDATE users SET password_hash = ?1 WHERE id = ?2",
+            params![password_hash, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_last_login(&self, id: i64) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "UPDATE users SET last_login = datetime('now') WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_user(&self, id: i64) -> rusqlite::Result<()> {
+        self.conn
+            .execute("DELETE FROM sessions WHERE user_id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM users WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn count_active_admins(&self) -> rusqlite::Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1",
+            [],
+            |r| r.get(0),
+        )
+    }
+
+    pub fn create_session(
+        &self,
+        token: &str,
+        user_id: i64,
+        expires_at: i64,
+    ) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO sessions (token, user_id, expires_at) VALUES (?1, ?2, ?3)",
+            params![token, user_id, expires_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_session_user(&self, token: &str, now: i64) -> rusqlite::Result<Option<User>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT u.id, u.username, u.role, u.active, u.created_at, u.last_login
+             FROM sessions s
+             JOIN users u ON u.id = s.user_id
+             WHERE s.token = ?1 AND s.expires_at > ?2 AND u.active = 1",
+        )?;
+        stmt.query_row(params![token, now], row_to_user).optional()
+    }
+
+    pub fn delete_session(&self, token: &str) -> rusqlite::Result<()> {
+        self.conn
+            .execute("DELETE FROM sessions WHERE token = ?1", params![token])?;
+        Ok(())
+    }
+
+    pub fn delete_user_sessions(&self, user_id: i64) -> rusqlite::Result<()> {
+        self.conn
+            .execute("DELETE FROM sessions WHERE user_id = ?1", params![user_id])?;
+        Ok(())
+    }
+
+    pub fn cleanup_expired_sessions(&self, now: i64) -> rusqlite::Result<()> {
+        self.conn
+            .execute("DELETE FROM sessions WHERE expires_at <= ?1", params![now])?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Settings
+    // ------------------------------------------------------------------
+
+    pub fn get_settings(&self) -> rusqlite::Result<AppSettings> {
+        let mut stmt = self.conn.prepare("SELECT key, value FROM settings")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut values = HashMap::new();
+        for row in rows {
+            let (key, value) = row?;
+            values.insert(key, value);
+        }
+
+        let mut settings = AppSettings::default();
+        if let Some(value) = values.get("platform_name") {
+            if !value.trim().is_empty() {
+                settings.platform_name = value.clone();
+            }
+        }
+        if let Some(value) = values
+            .get("overspeed_kmh")
+            .and_then(|value| value.parse::<u16>().ok())
+        {
+            settings.overspeed_kmh = value;
+        }
+        if let Some(value) = values
+            .get("online_timeout_seconds")
+            .and_then(|value| value.parse::<i64>().ok())
+        {
+            settings.online_timeout_seconds = value;
+        }
+
+        Ok(settings)
+    }
+
+    pub fn update_settings(&self, settings: &AppSettings) -> rusqlite::Result<()> {
+        let entries = [
+            ("platform_name", settings.platform_name.clone()),
+            ("overspeed_kmh", settings.overspeed_kmh.to_string()),
+            (
+                "online_timeout_seconds",
+                settings.online_timeout_seconds.to_string(),
+            ),
+        ];
+
+        for (key, value) in entries {
+            self.conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )?;
+        }
+        Ok(())
     }
 
     /// Return positions for a given IMEI (newest first), limited to `limit`.
@@ -677,5 +967,107 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].r#type, "online");
         assert_eq!(events[1].r#type, "overspeed");
+    }
+
+    #[test]
+    fn users_sessions_and_settings() {
+        let storage = SqliteStorage::open(":memory:").unwrap();
+        assert_eq!(storage.user_count().unwrap(), 0);
+
+        let admin_id = storage
+            .create_user("admin", "hash-one", "admin")
+            .unwrap();
+        let viewer_id = storage
+            .create_user("viewer", "hash-two", "viewer")
+            .unwrap();
+        assert_eq!(storage.user_count().unwrap(), 2);
+
+        let found = storage.find_user_by_username("admin").unwrap().unwrap();
+        assert_eq!(found.user.id, admin_id);
+        assert_eq!(found.user.role, "admin");
+        assert_eq!(found.password_hash, "hash-one");
+        assert!(found.user.active);
+        assert_eq!(storage.count_active_admins().unwrap(), 1);
+
+        // Usernames are case-insensitive.
+        let found = storage.find_user_by_username("ADMIN").unwrap().unwrap();
+        assert_eq!(found.user.id, admin_id);
+
+        let users = storage.list_users().unwrap();
+        assert_eq!(users.len(), 2);
+        assert_eq!(users[0].username, "admin");
+        assert_eq!(users[1].username, "viewer");
+
+        // Role and active flags can be updated independently.
+        storage.update_user(viewer_id, Some("admin"), None).unwrap();
+        assert_eq!(storage.count_active_admins().unwrap(), 2);
+        storage.update_user(viewer_id, Some("viewer"), Some(false)).unwrap();
+        assert_eq!(storage.count_active_admins().unwrap(), 1);
+        let viewer = storage.get_user(viewer_id).unwrap().unwrap();
+        assert_eq!(viewer.role, "viewer");
+        assert!(!viewer.active);
+
+        // Sessions are valid until they expire.
+        let now = 1_700_000_000;
+        storage.create_session("token-a", admin_id, now + 60).unwrap();
+        let session_user = storage.get_session_user("token-a", now).unwrap().unwrap();
+        assert_eq!(session_user.id, admin_id);
+        assert!(storage.get_session_user("token-a", now + 61).unwrap().is_none());
+        assert!(storage.get_session_user("missing", now).unwrap().is_none());
+
+        // Disabled users cannot use an existing session.
+        storage.create_session("token-b", viewer_id, now + 60).unwrap();
+        assert!(storage.get_session_user("token-b", now).unwrap().is_none());
+
+        storage.delete_session("token-a").unwrap();
+        assert!(storage.get_session_user("token-a", now).unwrap().is_none());
+
+        storage.create_session("token-c", admin_id, now - 1).unwrap();
+        storage.cleanup_expired_sessions(now).unwrap();
+        assert!(storage.get_session_user("token-c", now).unwrap().is_none());
+
+        // Deleting a user removes their sessions.
+        storage.create_session("token-d", viewer_id, now + 60).unwrap();
+        storage.delete_user_sessions(viewer_id).unwrap();
+        assert!(storage.get_session_user("token-d", now).unwrap().is_none());
+        storage.update_user_password(admin_id, "hash-three").unwrap();
+        assert_eq!(
+            storage.find_user_by_username("admin").unwrap().unwrap().password_hash,
+            "hash-three"
+        );
+        storage.delete_user(viewer_id).unwrap();
+        assert_eq!(storage.user_count().unwrap(), 1);
+        assert!(storage.get_user(viewer_id).unwrap().is_none());
+
+        // Settings default values and round-trip.
+        let settings = storage.get_settings().unwrap();
+        assert_eq!(settings.platform_name, "TrackPulse");
+        assert_eq!(settings.overspeed_kmh, 80);
+        assert_eq!(settings.online_timeout_seconds, 300);
+
+        let custom = AppSettings {
+            platform_name: "Acme Fleet".to_string(),
+            overspeed_kmh: 110,
+            online_timeout_seconds: 900,
+        };
+        storage.update_settings(&custom).unwrap();
+        let loaded = storage.get_settings().unwrap();
+        assert_eq!(loaded.platform_name, "Acme Fleet");
+        assert_eq!(loaded.overspeed_kmh, 110);
+        assert_eq!(loaded.online_timeout_seconds, 900);
+    }
+
+    #[test]
+    fn settings_apply_to_online_stats() {
+        let storage = SqliteStorage::open(":memory:").unwrap();
+        storage.insert_position(&sample_position()).unwrap();
+
+        let stats = storage.get_stats().unwrap();
+        assert_eq!(stats.devices_total, 1);
+        assert_eq!(stats.devices_online, 1);
+
+        let devices = storage.get_devices().unwrap();
+        assert_eq!(devices.len(), 1);
+        assert!(devices[0].online);
     }
 }

@@ -1,33 +1,55 @@
-//! HTTP API + WebSocket for the fleet dashboard (Phase 4+5).
+//! HTTP API + WebSocket for the fleet dashboard.
 //!
-//! Endpoints:
-//!   GET  /                          — welcome text
-//!   GET  /ws                        — WebSocket live stream (positions + events)
+//! Authentication (see `auth.rs`):
+//!   GET  /setup                     — first-run admin setup page
+//!   GET  /login                     — sign-in page
+//!   POST /api/auth/setup            — create the first admin
+//!   POST /api/auth/login            — sign in (sets HttpOnly session cookie)
+//!   POST /api/auth/logout           — sign out
+//!   GET  /api/auth/me               — current user
+//!   GET  /api/auth/status           — setup/authentication status
+//!   POST /api/auth/password         — change own password
+//!
+//! Fleet endpoints:
+//!   GET  /ws                        — authenticated WebSocket live stream
 //!   GET  /api/devices               — device list with online status (JSON)
 //!   GET  /api/positions?imei=X&limit=N — latest positions (JSON)
 //!   GET  /api/positions/{imei}      — position history (JSON)
 //!   GET  /api/tracks?imei=X&from=&to=&limit=N — track trace for map (JSON)
 //!   GET  /api/geofences             — list geofences (JSON)
-//!   POST  /api/geofences            — create geofence {name, geojson} (JSON)
-//!   DELETE /api/geofences/:id       — delete geofence
+//!   POST /api/geofences             — create geofence {name, geojson} (JSON)
+//!   DELETE /api/geofences/{id}      — delete geofence
 //!   GET  /api/events?imei=X&limit=N — event log (JSON)
+//!
+//! Admin endpoints:
+//!   GET/POST    /api/users          — list/create users
+//!   PATCH/DELETE /api/users/{id}    — update/delete a user
+//!   GET/POST    /api/settings       — read/update platform settings
+//!   GET         /api/settings/public — public branding
+//!
+//! Pages:
 //!   GET  /map                       — Leaflet dashboard page
 //!   GET  /reports                   — GPS telemetry table (timestamp, speed, IO data)
 //!   GET  /replay                    — animated trip replay (Traccar-style)
+//!   GET  /users                     — user management (admin only)
+//!   GET  /settings                  — platform settings (admin only)
+
+mod auth;
+mod settings;
+mod users;
 
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post, delete},
-    Router,
-    response::{Html, Json},
-    extract::ws::WebSocketUpgrade,
+    routing::{get, post, delete, patch},
+    Extension, Router,
+    response::{Html, IntoResponse, Json, Redirect, Response},
 };
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
-use crate::storage::{Device, Position, SqliteStorage, DB_PATH};
-use crate::ws::{self, AppState, ServerMessage};
+use crate::api::auth::CurrentUser;
+use crate::storage::Position;
+use crate::ws::{self, AppState};
 
 // ---------------------------------------------------------------------------
 // Query / request types
@@ -105,6 +127,16 @@ pub struct OkResponse {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(root_handler))
+        .route("/login", get(auth::login_page))
+        .route("/setup", get(auth::setup_page))
+        .route("/auth.js", get(auth::auth_js))
+        .route("/api/auth/status", get(auth::status))
+        .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/setup", post(auth::setup))
+        .route("/api/auth/logout", post(auth::logout))
+        .route("/api/auth/me", get(auth::me))
+        .route("/api/auth/password", post(auth::change_password))
+        .route("/api/settings/public", get(settings::public_settings))
         .route("/ws", get(ws::ws_handler))
         .route("/api/devices", get(list_devices))
         .route("/api/stats", get(get_stats))
@@ -114,6 +146,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/geofences", get(list_geofences).post(create_geofence))
         .route("/api/geofences/{id}", delete(delete_geofence))
         .route("/api/events", get(list_events))
+        .route("/api/users", get(users::list_users).post(users::create_user))
+        .route(
+            "/api/users/{id}",
+            patch(users::update_user).delete(users::delete_user),
+        )
+        .route(
+            "/api/settings",
+            get(settings::get_settings).post(settings::update_settings),
+        )
         .route("/map", get(map_page))
         .route("/map.html", get(map_page))
         .route("/tracks.html", get(tracks_page))
@@ -121,12 +162,20 @@ pub fn router(state: AppState) -> Router {
         .route("/events.html", get(events_page))
         .route("/reports.html", get(reports_page))
         .route("/replay.html", get(replay_page))
+        .route("/users", get(users_page))
+        .route("/users.html", get(users_page))
+        .route("/settings", get(settings_page))
+        .route("/settings.html", get(settings_page))
         // Clean URLs
         .route("/reports", get(reports_page))
         .route("/replay", get(replay_page))
         .route("/tracks", get(tracks_page))
         .route("/geofences", get(geofences_page))
         .route("/events", get(events_page))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_auth,
+        ))
         .layer(CorsLayer::permissive()) // allow browser dashboards on any origin
         .with_state(state)
 }
@@ -143,8 +192,8 @@ pub async fn start(state: AppState, addr: &str) -> Result<(), Box<dyn std::error
 // Handlers
 // ---------------------------------------------------------------------------
 
-async fn root_handler() -> &'static str {
-    "GPS Tracker Fleet API. Try GET /api/devices, GET /api/tracks?imei=..., GET /ws, or GET /map"
+async fn root_handler() -> Redirect {
+    Redirect::to("/map")
 }
 
 async fn list_devices(State(state): State<AppState>) -> Json<DeviceList> {
@@ -244,4 +293,18 @@ async fn geofences_page() -> Html<&'static str> {
 
 async fn events_page() -> Html<&'static str> {
     Html(include_str!("events.html"))
+}
+
+async fn users_page(Extension(user): Extension<CurrentUser>) -> Response {
+    if !user.is_admin() {
+        return Redirect::to("/map").into_response();
+    }
+    Html(include_str!("users.html")).into_response()
+}
+
+async fn settings_page(Extension(user): Extension<CurrentUser>) -> Response {
+    if !user.is_admin() {
+        return Redirect::to("/map").into_response();
+    }
+    Html(include_str!("settings.html")).into_response()
 }

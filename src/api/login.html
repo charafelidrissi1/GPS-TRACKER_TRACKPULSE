@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Sign in</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b1220;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --online: #10b981;
+    --alert: #ef4444;
+  }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: var(--text);
+    background:
+      radial-gradient(circle at 12% 12%, rgba(37,99,235,.30), transparent 38%),
+      radial-gradient(circle at 88% 88%, rgba(16,185,129,.20), transparent 40%),
+      linear-gradient(135deg, #0b1220 0%, #111c31 55%, #0b1220 100%);
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(148,163,184,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,.05) 1px, transparent 1px);
+    background-size: 44px 44px;
+    pointer-events: none;
+  }
+
+  .card {
+    position: relative;
+    width: min(900px, 100%);
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    background: var(--panel);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(2,6,23,.55);
+    border: 1px solid rgba(148,163,184,.16);
+  }
+
+  /* ---------- Brand panel ---------- */
+  .brand-panel {
+    position: relative;
+    padding: 38px 36px;
+    color: #fff;
+    background:
+      radial-gradient(circle at 80% 10%, rgba(59,130,246,.35), transparent 45%),
+      linear-gradient(160deg, #0f172a 0%, #172554 60%, #1e3a8a 100%);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .brand-panel::after {
+    content: "";
+    position: absolute;
+    right: -80px;
+    bottom: -110px;
+    width: 320px;
+    height: 320px;
+    border-radius: 50%;
+    border: 1px solid rgba(147,197,253,.22);
+    box-shadow: 0 0 0 34px rgba(147,197,253,.05), 0 0 0 68px rgba(147,197,253,.035);
+  }
+  .brand { display: flex; align-items: center; gap: .55rem; font-weight: 800; letter-spacing: .3px; font-size: 1.05rem; }
+  .logo-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 rgba(16,185,129,.7); animation: brandPulse 2s infinite; }
+  @keyframes brandPulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.7); } 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .brand-panel h1 { font-size: 1.85rem; line-height: 1.15; letter-spacing: -.02em; margin-top: auto; margin-bottom: 14px; }
+  .brand-panel p { color: #bfdbfe; font-size: .86rem; line-height: 1.6; max-width: 320px; }
+  .feature-list { list-style: none; margin-top: 22px; display: flex; flex-direction: column; gap: 9px; }
+  .feature-list li { display: flex; align-items: center; gap: 9px; font-size: .78rem; color: #dbeafe; }
+  .feature-list li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #34d399; flex: 0 0 auto; }
+  .brand-foot { margin-top: auto; padding-top: 28px; font-size: .68rem; color: #93c5fd; letter-spacing: .04em; text-transform: uppercase; }
+
+  /* ---------- Form panel ---------- */
+  .form-panel { display: flex; align-items: center; justify-content: center; padding: 38px 34px; }
+  .form-wrap { width: 100%; max-width: 320px; }
+  .form-wrap h2 { font-size: 1.35rem; letter-spacing: -.02em; margin-bottom: 4px; }
+  .form-wrap .sub { color: var(--muted); font-size: .84rem; margin-bottom: 22px; }
+  .error { display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 9px; padding: 9px 11px; font-size: .78rem; line-height: 1.4; margin-bottom: 14px; }
+  .error.show { display: block; }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 13px; }
+  .field label { font-size: .62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .field input { width: 100%; padding: .62rem .7rem; border: 1px solid var(--border); border-radius: 9px; font: inherit; font-size: .88rem; color: var(--text); outline: none; transition: .15s; background: #fff; }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  .pass-wrap { position: relative; }
+  .pass-wrap input { padding-right: 58px; }
+  .pass-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--muted); font: inherit; font-size: .7rem; font-weight: 700; padding: 5px 7px; border-radius: 6px; cursor: pointer; }
+  .pass-toggle:hover { background: #f1f5f9; color: var(--text); }
+  .submit { width: 100%; margin-top: 6px; padding: .68rem 1rem; border: 0; border-radius: 9px; background: var(--accent); color: #fff; font: inherit; font-size: .86rem; font-weight: 800; cursor: pointer; transition: .15s; }
+  .submit:hover { background: #1d4ed8; }
+  .submit:disabled { opacity: .65; cursor: wait; }
+  .secure { margin-top: 20px; text-align: center; color: #94a3b8; font-size: .68rem; line-height: 1.5; }
+  .secure b { color: #64748b; }
+
+  @media (max-width: 760px) {
+    .card { grid-template-columns: 1fr; max-width: 420px; }
+    .brand-panel { display: none; }
+    .form-panel { padding: 32px 26px; }
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <aside class="brand-panel">
+      <div class="brand"><span class="logo-dot"></span><span id="brand-name">TrackPulse</span></div>
+      <h1>Fleet visibility,<br>without the noise.</h1>
+      <p>Live positions, trip replay, geofences and telemetry — all in one clean dashboard.</p>
+      <ul class="feature-list">
+        <li>Live tracking over WebSocket</li>
+        <li>Teltonika AVL telemetry</li>
+        <li>Free OpenStreetMap tiles</li>
+      </ul>
+      <div class="brand-foot">Self-hosted · Rust + SQLite</div>
+    </aside>
+
+    <main class="form-panel">
+      <div class="form-wrap">
+        <h2>Welcome back</h2>
+        <p class="sub">Sign in to your fleet dashboard.</p>
+        <div class="error" id="error"></div>
+
+        <form id="login-form" autocomplete="on">
+          <div class="field">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" autocomplete="username" autofocus required />
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="pass-wrap">
+              <input id="password" name="password" type="password" autocomplete="current-password" required />
+              <button class="pass-toggle" id="toggle" type="button">Show</button>
+            </div>
+          </div>
+          <button class="submit" id="submit" type="submit">Sign in</button>
+        </form>
+
+        <div class="secure">Protected by <b>Argon2</b> password hashing and HTTP-only sessions.</div>
+      </div>
+    </main>
+  </div>
+
+<script>
+  const API = "";
+  const form = document.getElementById('login-form');
+  const username = document.getElementById('username');
+  const password = document.getElementById('password');
+  const submit = document.getElementById('submit');
+  const errorEl = document.getElementById('error');
+  const toggle = document.getElementById('toggle');
+
+  function showError(message) {
+    errorEl.textContent = message;
+    errorEl.classList.add('show');
+  }
+
+  toggle.addEventListener('click', () => {
+    const hidden = password.type === 'password';
+    password.type = hidden ? 'text' : 'password';
+    toggle.textContent = hidden ? 'Hide' : 'Show';
+    password.focus();
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    errorEl.classList.remove('show');
+    if (!username.value.trim() || !password.value) {
+      showError('Enter your username and password.');
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = 'Signing in…';
+    try {
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.value.trim(), password: password.value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showError(data.error || 'Sign in failed. Please try again.');
+        return;
+      }
+      window.location.href = '/map';
+    } catch (_) {
+      showError('Could not reach the server. Check your connection.');
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Sign in';
+    }
+  });
+
+  (async function loadBrand() {
+    try {
+      const res = await fetch('/api/settings/public');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.platform_name) {
+        document.getElementById('brand-name').textContent = data.platform_name;
+        document.title = `${data.platform_name} — Sign in`;
+      }
+    } catch (_) { /* ignore */ }
+  })();
+</script>
+</body>
+</html>

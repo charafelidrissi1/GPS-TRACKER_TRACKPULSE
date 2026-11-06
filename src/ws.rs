@@ -9,7 +9,6 @@ use axum::{
     extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
     response::Response,
 };
-use futures_util::stream::StreamExt;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::broadcast;

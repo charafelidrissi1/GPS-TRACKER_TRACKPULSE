@@ -7,25 +7,32 @@ mod geo;
 
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use crate::server::LISTEN_ADDR;
-use crate::storage::{SqliteStorage, DB_PATH};
+use crate::server::listen_addr;
+use crate::storage::{db_path, SqliteStorage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let database = db_path();
+    let http_addr =
+        std::env::var("GPS_TRACKER_HTTP_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+    let tcp_addr = listen_addr();
+    let dashboard_addr = http_addr.replace("0.0.0.0", "localhost");
+
     println!("==============================================");
     println!("  GPS Tracker Fleet Platform (Rust)");
     println!("==============================================");
-    println!("TCP tracker  : {}", LISTEN_ADDR);
-    println!("HTTP API     : 0.0.0.0:8080");
-    println!("WebSocket    : 0.0.0.0:8080/ws");
-    println!("Dashboard    : http://localhost:8080/map");
-    println!("Database     : {}", DB_PATH);
+    println!("TCP tracker  : {}", tcp_addr);
+    println!("HTTP API     : {}", http_addr);
+    println!("WebSocket    : ws://{}/ws", dashboard_addr);
+    println!("Dashboard    : http://{}/map", dashboard_addr);
+    println!("First run    : open /setup to create the admin account");
+    println!("Database     : {}", database);
     println!("Map tiles    : OpenStreetMap (free, no API key)");
     println!();
 
     // Shared SQLite storage (accessed by TCP server + HTTP API)
     let storage: Arc<Mutex<SqliteStorage>> =
-        Arc::new(Mutex::new(SqliteStorage::open(DB_PATH)?));
+        Arc::new(Mutex::new(SqliteStorage::open(&database)?));
     println!("SQLite storage opened");
 
     // Broadcast channel for live position/event streaming to WebSocket clients
@@ -37,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn the HTTP API server (port 8080) concurrently
     let api_handle = tokio::spawn(async move {
-        if let Err(e) = api::start(api_state, "0.0.0.0:8080").await {
+        if let Err(e) = api::start(api_state, &http_addr).await {
             eprintln!("HTTP API error: {}", e);
         }
     });

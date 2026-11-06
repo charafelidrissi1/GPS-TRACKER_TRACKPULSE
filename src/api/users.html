@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Users</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f1f5f9;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --online: #10b981;
+    --alert: #ef4444;
+    --amber: #f59e0b;
+  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-top: 58px; }
+
+  /* ---------- Top bar ---------- */
+  .topbar { height: 58px; background: #0f172a; color: #fff; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; position: fixed; top: 0; left: 0; right: 0; z-index: 30; box-shadow: 0 2px 12px rgba(15,23,42,0.18); }
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 800; letter-spacing: 0.3px; font-size: 1.05rem; }
+  .brand .logo-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 rgba(16,185,129,.7); animation: brandPulse 2s infinite; }
+  @keyframes brandPulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.7); } 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
+  .nav a { color: #cbd5e1; text-decoration: none; font-size: 0.82rem; padding: 0.4rem 0.7rem; border-radius: 8px; transition: 0.15s; }
+  .nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .nav a.active { background: rgba(37,99,235,0.25); color: #fff; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.9rem; }
+
+  main { padding: 22px 24px 48px; max-width: 1180px; margin: 0 auto; }
+  .page-head { display: flex; align-items: flex-end; gap: 0.9rem; margin-bottom: 16px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 1.3rem; letter-spacing: -0.015em; }
+  .page-head .sub { color: var(--muted); font-size: 0.82rem; margin-bottom: 2px; }
+  .page-head .spacer { margin-left: auto; }
+
+  .btn { padding: 0.55rem 1rem; border: none; border-radius: 9px; background: var(--accent); color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: #1d4ed8; }
+  .btn:disabled { opacity: 0.6; cursor: wait; }
+  .btn.secondary { background: #e2e8f0; color: #334155; }
+  .btn.secondary:hover { background: #cbd5e1; }
+  .btn.danger { background: #fee2e2; color: #b91c1c; }
+  .btn.danger:hover { background: #fecaca; }
+  .btn.small { padding: 0.34rem 0.62rem; font-size: 0.72rem; border-radius: 7px; }
+
+  /* ---------- Summary ---------- */
+  .summary { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 15px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+  .stat .label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 800; }
+  .stat .value { font-size: 1.35rem; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .value.blue { color: var(--accent); }
+  .stat .value.green { color: var(--online); }
+  .stat .value.amber { color: #b45309; }
+
+  /* ---------- Table ---------- */
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 4px 16px rgba(15,23,42,.06); overflow: hidden; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 860px; }
+  thead th { background: #f8fafc; text-align: left; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 800; padding: 11px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.82rem; vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #f8fafc; }
+
+  .user-cell { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: #dbeafe; color: #1d4ed8; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; flex: 0 0 auto; }
+  .user-name { font-weight: 700; }
+  .you-tag { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; background: #dbeafe; border-radius: 999px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
+
+  .role-select { padding: 0.34rem 0.5rem; border: 1px solid var(--border); border-radius: 7px; background: #fff; font: inherit; font-size: 0.76rem; font-weight: 700; color: var(--text); outline: none; cursor: pointer; }
+  .role-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+  .role-select:disabled { opacity: 0.55; cursor: not-allowed; }
+  .role-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.02em; }
+  .role-badge.admin { background: #dbeafe; color: #1d4ed8; }
+  .role-badge.viewer { background: #f1f5f9; color: #475569; }
+
+  .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 700; }
+  .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-pill.active { color: #047857; }
+  .status-pill.active .dot { background: var(--online); box-shadow: 0 0 0 3px rgba(16,185,129,.15); }
+  .status-pill.disabled { color: var(--muted); }
+  .status-pill.disabled .dot { background: #94a3b8; }
+
+  .muted { color: var(--muted); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+  .empty-state { padding: 3rem 1rem; text-align: center; color: var(--muted); font-size: 0.85rem; }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 16px; }
+  .modal-backdrop.open { display: flex; }
+  .modal { width: 100%; max-width: 420px; background: #fff; border-radius: 16px; box-shadow: 0 24px 70px rgba(15,23,42,.35); padding: 20px; }
+  .modal h3 { font-size: 1.05rem; margin-bottom: 3px; }
+  .modal .sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 16px; line-height: 1.45; }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .field label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+  .field input, .field select { padding: 0.58rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 0.85rem; background: #fff; color: var(--text); outline: none; }
+  .field input:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+  .modal-error { display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 10px; font-size: 0.76rem; line-height: 1.4; margin-bottom: 12px; }
+  .modal-error.show { display: block; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+
+  @media (max-width: 900px) {
+    .nav { display: none; }
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    main { padding: 16px 14px 40px; }
+    .table-wrap { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo-dot"></span>TrackPulse</div>
+  <div class="nav">
+    <a href="/map.html">Dashboard</a>
+    <a href="/reports">GPS Data</a>
+    <a href="/replay">Replay</a>
+    <a href="/tracks.html">Trip History</a>
+    <a href="/geofences.html">Geofences</a>
+    <a href="/events.html">Events</a>
+    <a href="/settings">Settings</a>
+    <a href="/users" class="active">Users</a>
+  </div>
+  <div class="topbar-right"></div>
+</div>
+
+<main>
+  <div class="page-head">
+    <div>
+      <h1>Users</h1>
+      <div class="sub">Accounts that can sign in to this platform</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn" id="new-user">+ New user</button>
+  </div>
+
+  <div class="summary">
+    <div class="stat"><div class="label">Total users</div><div class="value blue" id="stat-total">–</div></div>
+    <div class="stat"><div class="label">Administrators</div><div class="value" id="stat-admins">–</div></div>
+    <div class="stat"><div class="label">Viewers</div><div class="value amber" id="stat-viewers">–</div></div>
+    <div class="stat"><div class="label">Active</div><div class="value green" id="stat-active">–</div></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Last sign-in</th>
+          <th style="text-align:right">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="users-body">
+        <tr><td colspan="6"><div class="empty-state">Loading users…</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h3 id="modal-title">New user</h3>
+    <p class="sub" id="modal-sub">Create an account and choose what it can do.</p>
+    <div class="modal-error" id="modal-error"></div>
+    <form id="modal-form" autocomplete="off">
+      <div class="field" id="username-field">
+        <label for="m-username">Username</label>
+        <input id="m-username" type="text" autocomplete="off" placeholder="e.g. jane.doe" />
+      </div>
+      <div class="field">
+        <label for="m-password" id="password-label">Password</label>
+        <input id="m-password" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+      </div>
+      <div class="field" id="role-field">
+        <label for="m-role">Role</label>
+        <select id="m-role">
+          <option value="viewer">Viewer — read-only access</option>
+          <option value="admin">Administrator — full access</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" type="button" id="modal-cancel">Cancel</button>
+        <button class="btn" type="submit" id="modal-save">Create user</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/auth.js"></script>
+<script>
+const usersBody = document.getElementById('users-body');
+const backdrop = document.getElementById('modal-backdrop');
+const modalForm = document.getElementById('modal-form');
+const modalError = document.getElementById('modal-error');
+const modalTitle = document.getElementById('modal-title');
+const modalSub = document.getElementById('modal-sub');
+const modalSave = document.getElementById('modal-save');
+const usernameField = document.getElementById('username-field');
+const roleField = document.getElementById('role-field');
+const passwordLabel = document.getElementById('password-label');
+
+let users = [];
+let me = null;
+let mode = 'create'; // create | password
+let passwordTarget = null;
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function formatDate(value) {
+  if (!value) return '—';
+  const date = new Date(value.includes('T') ? value : value.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function showModalError(message) {
+  modalError.textContent = message;
+  modalError.classList.add('show');
+}
+
+function openModal(nextMode, user) {
+  mode = nextMode;
+  passwordTarget = user || null;
+  modalError.classList.remove('show');
+  modalForm.reset();
+  document.getElementById('m-username').disabled = false;
+
+  if (mode === 'create') {
+    modalTitle.textContent = 'New user';
+    modalSub.textContent = 'Create an account and choose what it can do.';
+    modalSave.textContent = 'Create user';
+    usernameField.style.display = '';
+    roleField.style.display = '';
+    passwordLabel.textContent = 'Password';
+  } else {
+    modalTitle.textContent = `Reset password`;
+    modalSub.textContent = `Set a new password for ${user.username}. Existing sessions will be signed out.`;
+    modalSave.textContent = 'Update password';
+    usernameField.style.display = 'none';
+    roleField.style.display = 'none';
+    passwordLabel.textContent = 'New password';
+  }
+
+  backdrop.classList.add('open');
+  setTimeout(() => {
+    (mode === 'create' ? document.getElementById('m-username') : document.getElementById('m-password')).focus();
+  }, 40);
+}
+
+function closeModal() {
+  backdrop.classList.remove('open');
+}
+
+async function api(url, options) {
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function load() {
+  try {
+    const [meData, data] = await Promise.all([
+      api('/api/auth/me'),
+      api('/api/users'),
+    ]);
+    me = meData;
+    users = data.users || [];
+    render();
+  } catch (err) {
+    usersBody.innerHTML = `<tr><td colspan="6"><div class="empty-state">${escapeHtml(err.message)}</div></td></tr>`;
+  }
+}
+
+function render() {
+  const admins = users.filter((u) => u.role === 'admin');
+  const viewers = users.filter((u) => u.role === 'viewer');
+  const active = users.filter((u) => u.active);
+  document.getElementById('stat-total').textContent = users.length;
+  document.getElementById('stat-admins').textContent = admins.length;
+  document.getElementById('stat-viewers').textContent = viewers.length;
+  document.getElementById('stat-active').textContent = active.length;
+
+  if (!users.length) {
+    usersBody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No users yet.</div></td></tr>';
+    return;
+  }
+
+  usersBody.innerHTML = users.map((user) => {
+    const isMe = me && me.id === user.id;
+    const initial = escapeHtml((user.username || '?').slice(0, 1));
+    const roleOptions = ['admin', 'viewer'].map((role) =>
+      `<option value="${role}"${user.role === role ? ' selected' : ''}>${role === 'admin' ? 'Administrator' : 'Viewer'}</option>`
+    ).join('');
+
+    const actions = [];
+    actions.push(`<button class="btn secondary small" data-action="password" data-id="${user.id}">Reset password</button>`);
+    if (!isMe) {
+      actions.push(
+        user.active
+          ? `<button class="btn secondary small" data-action="disable" data-id="${user.id}">Disable</button>`
+          : `<button class="btn secondary small" data-action="enable" data-id="${user.id}">Enable</button>`
+      );
+      actions.push(`<button class="btn danger small" data-action="delete" data-id="${user.id}">Delete</button>`);
+    }
+
+    return `
+      <tr data-id="${user.id}">
+        <td>
+          <div class="user-cell">
+            <div class="avatar">${initial}</div>
+            <div>
+              <div class="user-name">${escapeHtml(user.username)}${isMe ? '<span class="you-tag">You</span>' : ''}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <select class="role-select" data-action="role" data-id="${user.id}" ${isMe ? 'disabled title="You cannot change your own role"' : ''}>
+            ${roleOptions}
+          </select>
+        </td>
+        <td>
+          <span class="status-pill ${user.active ? 'active' : 'disabled'}">
+            <span class="dot"></span>${user.active ? 'Active' : 'Disabled'}
+          </span>
+        </td>
+        <td><span class="muted">${formatDate(user.created_at)}</span></td>
+        <td><span class="muted">${formatDate(user.last_login)}</span></td>
+        <td><div class="actions">${actions.join('')}</div></td>
+      </tr>`;
+  }).join('');
+}
+
+usersBody.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  const id = Number(button.dataset.id);
+  const user = users.find((u) => u.id === id);
+  if (!user) return;
+
+  const action = button.dataset.action;
+  if (action === 'password') {
+    openModal('password', user);
+    return;
+  }
+
+  try {
+    button.disabled = true;
+    if (action === 'delete') {
+      if (!window.confirm(`Delete user "${user.username}"? This cannot be undone.`)) {
+        button.disabled = false;
+        return;
+      }
+      await api(`/api/users/${id}`, { method: 'DELETE' });
+      if (window.tpToast) window.tpToast(`Deleted ${user.username}`);
+    } else if (action === 'disable' || action === 'enable') {
+      await api(`/api/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: action === 'enable' }),
+      });
+      if (window.tpToast) window.tpToast(action === 'enable' ? `${user.username} enabled` : `${user.username} disabled`);
+    }
+    await load();
+  } catch (err) {
+    if (window.tpToast) window.tpToast(err.message);
+    else window.alert(err.message);
+    button.disabled = false;
+  }
+});
+
+usersBody.addEventListener('change', async (event) => {
+  const select = event.target.closest('select[data-action="role"]');
+  if (!select) return;
+  const id = Number(select.dataset.id);
+  const user = users.find((u) => u.id === id);
+  if (!user) return;
+  try {
+    select.disabled = true;
+    await api(`/api/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: select.value }),
+    });
+    if (window.tpToast) window.tpToast(`${user.username} is now ${select.value === 'admin' ? 'an administrator' : 'a viewer'}`);
+    await load();
+  } catch (err) {
+    if (window.tpToast) window.tpToast(err.message);
+    select.value = user.role;
+    select.disabled = false;
+  }
+});
+
+document.getElementById('new-user').addEventListener('click', () => openModal('create'));
+document.getElementById('modal-cancel').addEventListener('click', closeModal);
+backdrop.addEventListener('click', (event) => {
+  if (event.target === backdrop) closeModal();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeModal();
+});
+
+modalForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  modalError.classList.remove('show');
+
+  const password = document.getElementById('m-password').value;
+  if (password.length < 8) {
+    showModalError('Password must be at least 8 characters.');
+    return;
+  }
+
+  modalSave.disabled = true;
+  try {
+    if (mode === 'create') {
+      const username = document.getElementById('m-username').value.trim();
+      const role = document.getElementById('m-role').value;
+      if (!username) {
+        showModalError('Enter a username.');
+        return;
+      }
+      await api('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, role }),
+      });
+      if (window.tpToast) window.tpToast(`Created ${username}`);
+    } else {
+      await api(`/api/users/${passwordTarget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (window.tpToast) window.tpToast(`Password updated for ${passwordTarget.username}`);
+    }
+    closeModal();
+    await load();
+  } catch (err) {
+    showModalError(err.message);
+  } finally {
+    modalSave.disabled = false;
+  }
+});
+
+load();
+</script>
+</body>
+</html>

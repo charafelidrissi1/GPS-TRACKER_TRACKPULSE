@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Settings</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f1f5f9;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --online: #10b981;
+    --alert: #ef4444;
+    --amber: #f59e0b;
+  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-top: 58px; }
+
+  /* ---------- Top bar ---------- */
+  .topbar { height: 58px; background: #0f172a; color: #fff; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; position: fixed; top: 0; left: 0; right: 0; z-index: 30; box-shadow: 0 2px 12px rgba(15,23,42,0.18); }
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 800; letter-spacing: 0.3px; font-size: 1.05rem; }
+  .brand .logo-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 rgba(16,185,129,.7); animation: brandPulse 2s infinite; }
+  @keyframes brandPulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.7); } 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
+  .nav a { color: #cbd5e1; text-decoration: none; font-size: 0.82rem; padding: 0.4rem 0.7rem; border-radius: 8px; transition: 0.15s; }
+  .nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .nav a.active { background: rgba(37,99,235,0.25); color: #fff; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.9rem; }
+
+  main { padding: 22px 24px 60px; max-width: 1080px; margin: 0 auto; }
+  .page-head { display: flex; align-items: flex-end; gap: 0.9rem; margin-bottom: 16px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 1.3rem; letter-spacing: -0.015em; }
+  .page-head .sub { color: var(--muted); font-size: 0.82rem; margin-bottom: 2px; }
+  .page-head .spacer { margin-left: auto; }
+
+  .btn { padding: 0.55rem 1rem; border: none; border-radius: 9px; background: var(--accent); color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: #1d4ed8; }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn.secondary { background: #e2e8f0; color: #334155; }
+  .btn.secondary:hover { background: #cbd5e1; }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04); overflow: hidden; }
+  .card + .card { margin-top: 16px; }
+  .card-head { padding: 15px 18px; border-bottom: 1px solid var(--border); background: #f8fafc; }
+  .card-head h2 { font-size: 0.9rem; letter-spacing: -0.01em; }
+  .card-head p { font-size: 0.74rem; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+  .card-body { padding: 18px; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+  .field .control { display: flex; align-items: stretch; }
+  .field input { flex: 1; min-width: 0; padding: 0.6rem 0.7rem; border: 1px solid var(--border); border-radius: 9px 0 0 9px; font: inherit; font-size: 0.88rem; color: var(--text); background: #fff; outline: none; transition: 0.15s; }
+  .field input.solo { border-radius: 9px; }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); z-index: 1; }
+  .field .unit { display: flex; align-items: center; padding: 0 0.75rem; border: 1px solid var(--border); border-left: none; border-radius: 0 9px 9px 0; background: #f8fafc; color: var(--muted); font-size: 0.76rem; font-weight: 700; white-space: nowrap; }
+  .field .hint { font-size: 0.7rem; color: #94a3b8; line-height: 1.45; }
+  .field .hint b { color: #64748b; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .row .field { margin-bottom: 0; }
+
+  /* ---------- Preview ---------- */
+  .preview-label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 8px; }
+  .preview-bar { background: #0f172a; border-radius: 11px; padding: 12px 14px; color: #fff; display: flex; align-items: center; gap: 9px; box-shadow: 0 8px 20px rgba(15,23,42,.22); }
+  .preview-bar .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--online); flex: 0 0 auto; }
+  .preview-bar .name { font-weight: 800; font-size: 0.9rem; letter-spacing: 0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preview-note { font-size: 0.7rem; color: var(--muted); line-height: 1.5; margin-top: 10px; }
+
+  .info-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+  .info-list li { display: flex; gap: 10px; font-size: 0.76rem; color: #475569; line-height: 1.45; }
+  .info-list .ic { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.72rem; }
+  .info-list .ic.blue { background: #eff6ff; color: var(--accent); }
+  .info-list .ic.amber { background: #fffbeb; color: #b45309; }
+  .info-list .ic.green { background: #ecfdf5; color: #047857; }
+  .info-list b { color: #1e293b; display: block; font-size: 0.78rem; margin-bottom: 1px; }
+
+  .save-bar { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+  .save-note { font-size: 0.74rem; color: var(--muted); margin-right: auto; }
+  .save-note.dirty { color: #b45309; font-weight: 700; }
+  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(10px); background: #0f172a; color: #fff; padding: 0.6rem 1rem; border-radius: 10px; font-size: 0.82rem; font-weight: 600; box-shadow: 0 10px 30px rgba(15,23,42,.3); opacity: 0; pointer-events: none; transition: all .22s; z-index: 4000; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .error-banner { display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 9px; padding: 9px 11px; font-size: 0.78rem; margin-bottom: 14px; }
+  .error-banner.show { display: block; }
+
+  @media (max-width: 900px) {
+    .nav { display: none; }
+    .layout { grid-template-columns: 1fr; }
+    main { padding: 16px 14px 48px; }
+  }
+  @media (max-width: 560px) {
+    .row { grid-template-columns: 1fr; }
+    .row .field { margin-bottom: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo-dot"></span>TrackPulse</div>
+  <div class="nav">
+    <a href="/map.html">Dashboard</a>
+    <a href="/reports">GPS Data</a>
+    <a href="/replay">Replay</a>
+    <a href="/tracks.html">Trip History</a>
+    <a href="/geofences.html">Geofences</a>
+    <a href="/events.html">Events</a>
+    <a href="/settings" class="active">Settings</a>
+    <a href="/users">Users</a>
+  </div>
+  <div class="topbar-right"></div>
+</div>
+
+<main>
+  <div class="page-head">
+    <div>
+      <h1>Settings</h1>
+      <div class="sub">Platform branding and monitoring thresholds</div>
+    </div>
+    <div class="spacer"></div>
+  </div>
+
+  <div class="error-banner" id="error-banner"></div>
+
+  <div class="layout">
+    <div>
+      <section class="card">
+        <div class="card-head">
+          <h2>Branding</h2>
+          <p>The name shown in the top bar, page titles and sign-in screen.</p>
+        </div>
+        <div class="card-body">
+          <div class="field">
+            <label for="platform-name">Platform name</label>
+            <input class="solo" id="platform-name" type="text" maxlength="60" placeholder="TrackPulse" />
+            <span class="hint">1–60 characters. Applies everywhere after saving.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Monitoring</h2>
+          <p>Thresholds used when trackers report new positions.</p>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="field">
+              <label for="overspeed">Overspeed threshold</label>
+              <div class="control">
+                <input id="overspeed" type="number" min="1" max="300" step="1" />
+                <span class="unit">km/h</span>
+              </div>
+              <span class="hint">A new <b>overspeed</b> event is recorded when a position exceeds this speed.</span>
+            </div>
+            <div class="field">
+              <label for="timeout">Online timeout</label>
+              <div class="control">
+                <input id="timeout" type="number" min="1" max="1440" step="1" />
+                <span class="unit">min</span>
+              </div>
+              <span class="hint">A device is shown as <b>online</b> for this long after its last position.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="save-bar">
+        <span class="save-note" id="save-note">Loading settings…</span>
+        <button class="btn secondary" id="reset" type="button" disabled>Reset</button>
+        <button class="btn" id="save" type="button" disabled>Save changes</button>
+      </div>
+    </div>
+
+    <aside>
+      <section class="card">
+        <div class="card-head">
+          <h2>Preview</h2>
+          <p>How your branding appears in the top bar.</p>
+        </div>
+        <div class="card-body">
+          <div class="preview-label">Live preview</div>
+          <div class="preview-bar">
+            <span class="logo-dot"></span>
+            <span class="name" id="preview-name">TrackPulse</span>
+          </div>
+          <p class="preview-note">Page titles and the sign-in screen use the same name.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>How it works</h2>
+          <p>These values take effect immediately.</p>
+        </div>
+        <div class="card-body">
+          <ul class="info-list">
+            <li>
+              <span class="ic blue">01</span>
+              <div><b>Overspeed alerts</b>Checked against every incoming Teltonika position. No restart needed.</div>
+            </li>
+            <li>
+              <span class="ic amber">02</span>
+              <div><b>Online status</b>Used by the dashboard device list and fleet statistics.</div>
+            </li>
+            <li>
+              <span class="ic green">03</span>
+              <div><b>Branding</b>Updated across all pages the next time they load.</div>
+            </li>
+          </ul>
+        </div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="/auth.js"></script>
+<script>
+const platformName = document.getElementById('platform-name');
+const overspeed = document.getElementById('overspeed');
+const timeout = document.getElementById('timeout');
+const previewName = document.getElementById('preview-name');
+const saveButton = document.getElementById('save');
+const resetButton = document.getElementById('reset');
+const saveNote = document.getElementById('save-note');
+const errorBanner = document.getElementById('error-banner');
+const toast = document.getElementById('toast');
+
+let saved = null;
+let toastTimer = null;
+
+function showToast(message) {
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+
+function showError(message) {
+  errorBanner.textContent = message;
+  errorBanner.classList.add('show');
+}
+
+function clearError() {
+  errorBanner.classList.remove('show');
+}
+
+function current() {
+  return {
+    platform_name: platformName.value.trim(),
+    overspeed_kmh: Number(overspeed.value),
+    online_timeout_seconds: Number(timeout.value) * 60,
+  };
+}
+
+function setDirty() {
+  if (!saved) return;
+  const value = current();
+  const dirty = value.platform_name !== saved.platform_name
+    || value.overspeed_kmh !== saved.overspeed_kmh
+    || value.online_timeout_seconds !== saved.online_timeout_seconds;
+  saveNote.textContent = dirty ? 'Unsaved changes' : 'All changes saved';
+  saveNote.classList.toggle('dirty', dirty);
+  saveButton.disabled = !dirty;
+  resetButton.disabled = !dirty;
+  previewName.textContent = value.platform_name || 'TrackPulse';
+}
+
+function apply(settings) {
+  saved = { ...settings };
+  platformName.value = settings.platform_name;
+  overspeed.value = settings.overspeed_kmh;
+  timeout.value = Math.round(settings.online_timeout_seconds / 60);
+  previewName.textContent = settings.platform_name;
+  saveNote.textContent = 'All changes saved';
+  saveNote.classList.remove('dirty');
+  saveButton.disabled = true;
+  resetButton.disabled = true;
+}
+
+async function load() {
+  try {
+    const res = await fetch('/api/settings');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showError(data.error || 'Could not load settings.');
+      saveNote.textContent = 'Failed to load';
+      return;
+    }
+    apply(data);
+  } catch (_) {
+    showError('Could not reach the server.');
+    saveNote.textContent = 'Failed to load';
+  }
+}
+
+[platformName, overspeed, timeout].forEach((input) => {
+  input.addEventListener('input', setDirty);
+});
+
+resetButton.addEventListener('click', () => {
+  if (saved) apply(saved);
+  clearError();
+});
+
+saveButton.addEventListener('click', async () => {
+  clearError();
+  const body = current();
+
+  if (!body.platform_name) {
+    showError('Platform name cannot be empty.');
+    return;
+  }
+  if (!(body.overspeed_kmh >= 1 && body.overspeed_kmh <= 300)) {
+    showError('Overspeed threshold must be between 1 and 300 km/h.');
+    return;
+  }
+  if (!(body.online_timeout_seconds >= 60 && body.online_timeout_seconds <= 86400)) {
+    showError('Online timeout must be between 1 and 1440 minutes.');
+    return;
+  }
+
+  saveButton.disabled = true;
+  saveButton.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showError(data.error || 'Could not save settings.');
+      saveButton.disabled = false;
+      return;
+    }
+    apply(data);
+    document.querySelectorAll('.brand').forEach((el) => {
+      for (const node of el.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+          node.textContent = data.platform_name;
+          break;
+        }
+      }
+    });
+    document.title = `${data.platform_name} — Settings`;
+    showToast('Settings saved');
+  } catch (_) {
+    showError('Could not reach the server.');
+    saveButton.disabled = false;
+  } finally {
+    saveButton.textContent = 'Save changes';
+  }
+});
+
+load();
+</script>
+</body>
+</html>
