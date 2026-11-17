@@ -28,6 +28,7 @@
   .badge.online { background: #dcfce7; color: #166534; }
   .badge.offline { background: #e5e7eb; color: #374151; }
   .badge.geofence { background: #dbeafe; color: #1e40af; }
+  .imei-sub { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; color: #94a3b8; }
   .empty { text-align: center; padding: 2rem; color: #6b7280; }
 </style>
 </head>
@@ -66,6 +67,13 @@ const emptyEl = document.getElementById('empty');
 const imeiSel = document.getElementById('imei');
 const limitSel = document.getElementById('limit');
 const loadBtn = document.getElementById('load');
+const deviceNames = {};
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 async function loadDevices() {
   try {
@@ -73,9 +81,10 @@ async function loadDevices() {
     const data = await res.json();
     imeiSel.innerHTML = '<option value="">All devices</option>';
     for (const d of data.devices) {
+      deviceNames[d.imei] = d.name || '';
       const opt = document.createElement('option');
       opt.value = d.imei;
-      opt.textContent = d.imei;
+      opt.textContent = d.name ? `${d.name} — ${d.imei}` : d.imei;
       imeiSel.appendChild(opt);
     }
   } catch (e) { console.error(e); }
@@ -120,11 +129,15 @@ async function loadEvents() {
 
     for (const e of events) {
       const tr = document.createElement('tr');
+      const label = deviceNames[e.imei] || e.imei;
+      const deviceCell = label !== e.imei
+        ? `${escapeHtml(label)}<br/><span class="imei-sub">${escapeHtml(e.imei)}</span>`
+        : escapeHtml(e.imei);
       tr.innerHTML = `
         <td>${formatTime(e.timestamp_ms)}</td>
-        <td>${e.imei}</td>
-        <td><span class="badge ${badgeClass(e.type)}">${e.type}</span></td>
-        <td>${e.message}</td>
+        <td>${deviceCell}</td>
+        <td><span class="badge ${badgeClass(e.type)}">${escapeHtml(e.type)}</span></td>
+        <td>${escapeHtml(e.message)}</td>
       `;
       tbody.appendChild(tr);
     }
@@ -142,8 +155,7 @@ loadBtn.addEventListener('click', loadEvents);
 imeiSel.addEventListener('change', loadEvents);
 limitSel.addEventListener('change', loadEvents);
 
-loadDevices();
-loadEvents();
+loadDevices().then(loadEvents);
 </script>
 <script src="/auth.js"></script>
 </body>

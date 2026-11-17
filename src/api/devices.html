@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TrackPulse — Devices</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f1f5f9;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --online: #10b981;
+    --alert: #ef4444;
+    --amber: #f59e0b;
+  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-top: 58px; }
+
+  /* ---------- Top bar ---------- */
+  .topbar { height: 58px; background: #0f172a; color: #fff; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; position: fixed; top: 0; left: 0; right: 0; z-index: 30; box-shadow: 0 2px 12px rgba(15,23,42,0.18); }
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 800; letter-spacing: 0.3px; font-size: 1.05rem; }
+  .brand .logo-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--online); box-shadow: 0 0 0 0 rgba(16,185,129,.7); animation: brandPulse 2s infinite; }
+  @keyframes brandPulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.7); } 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+  .nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
+  .nav a { color: #cbd5e1; text-decoration: none; font-size: 0.82rem; padding: 0.4rem 0.7rem; border-radius: 8px; transition: 0.15s; }
+  .nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .nav a.active { background: rgba(37,99,235,0.25); color: #fff; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.9rem; }
+
+  main { padding: 22px 24px 48px; max-width: 1180px; margin: 0 auto; }
+  .page-head { display: flex; align-items: flex-end; gap: 0.9rem; margin-bottom: 16px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 1.3rem; letter-spacing: -0.015em; }
+  .page-head .sub { color: var(--muted); font-size: 0.82rem; margin-bottom: 2px; }
+  .page-head .spacer { margin-left: auto; }
+
+  .btn { padding: 0.55rem 1rem; border: none; border-radius: 9px; background: var(--accent); color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: #1d4ed8; }
+  .btn:disabled { opacity: 0.6; cursor: wait; }
+  .btn.secondary { background: #e2e8f0; color: #334155; }
+  .btn.secondary:hover { background: #cbd5e1; }
+  .btn.danger { background: #fee2e2; color: #b91c1c; }
+  .btn.danger:hover { background: #fecaca; }
+  .btn.small { padding: 0.34rem 0.62rem; font-size: 0.72rem; border-radius: 7px; }
+
+  /* ---------- Summary ---------- */
+  .summary { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 15px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+  .stat .label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 800; }
+  .stat .value { font-size: 1.35rem; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .value.blue { color: var(--accent); }
+  .stat .value.green { color: var(--online); }
+  .stat .value.amber { color: #b45309; }
+
+  /* ---------- Info banner ---------- */
+  .hint-banner { display: flex; gap: 10px; align-items: flex-start; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 12px; padding: 11px 14px; font-size: 0.78rem; line-height: 1.5; margin-bottom: 16px; }
+  .hint-banner .ic { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.7rem; margin-top: 1px; }
+  .hint-banner b { font-weight: 800; }
+
+  /* ---------- Table ---------- */
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 4px 16px rgba(15,23,42,.06); overflow: hidden; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 900px; }
+  thead th { background: #f8fafc; text-align: left; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 800; padding: 11px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.82rem; vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #f8fafc; }
+
+  .device-cell { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 32px; height: 32px; border-radius: 10px; background: #dbeafe; color: #1d4ed8; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; flex: 0 0 auto; }
+  .device-name { font-weight: 700; }
+  .device-name.unnamed { color: var(--muted); font-weight: 600; font-style: italic; }
+  .imei { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: #334155; letter-spacing: 0.01em; }
+  .pending-tag { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #b45309; background: #fef3c7; border-radius: 999px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
+
+  .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 700; }
+  .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-pill.active { color: #047857; }
+  .status-pill.active .dot { background: var(--online); box-shadow: 0 0 0 3px rgba(16,185,129,.15); }
+  .status-pill.offline { color: var(--muted); }
+  .status-pill.offline .dot { background: #94a3b8; }
+
+  .muted { color: var(--muted); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+  .empty-state { padding: 3rem 1rem; text-align: center; color: var(--muted); font-size: 0.85rem; line-height: 1.6; }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 16px; }
+  .modal-backdrop.open { display: flex; }
+  .modal { width: 100%; max-width: 440px; background: #fff; border-radius: 16px; box-shadow: 0 24px 70px rgba(15,23,42,.35); padding: 20px; }
+  .modal h3 { font-size: 1.05rem; margin-bottom: 3px; }
+  .modal .sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 16px; line-height: 1.45; }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .field label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+  .field input { padding: 0.58rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 0.85rem; background: #fff; color: var(--text); outline: none; }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+  .field .hint { font-size: 0.7rem; color: var(--muted); line-height: 1.4; }
+  .modal-error { display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 10px; font-size: 0.76rem; line-height: 1.4; margin-bottom: 12px; }
+  .modal-error.show { display: block; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+
+  @media (max-width: 900px) {
+    .nav { display: none; }
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    main { padding: 16px 14px 40px; }
+    .table-wrap { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo-dot"></span>TrackPulse</div>
+  <div class="nav">
+    <a href="/map.html">Dashboard</a>
+    <a href="/reports">GPS Data</a>
+    <a href="/replay">Replay</a>
+    <a href="/tracks.html">Trip History</a>
+    <a href="/geofences.html">Geofences</a>
+    <a href="/events.html">Events</a>
+    <a href="/devices" class="active">Devices</a>
+    <a href="/settings">Settings</a>
+    <a href="/users">Users</a>
+  </div>
+  <div class="topbar-right"></div>
+</div>
+
+<main>
+  <div class="page-head">
+    <div>
+      <h1>Devices</h1>
+      <div class="sub">Register trackers and name the vehicles they belong to</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn" id="new-device">+ Add device</button>
+  </div>
+
+  <div class="summary">
+    <div class="stat"><div class="label">Total devices</div><div class="value blue" id="stat-total">–</div></div>
+    <div class="stat"><div class="label">Online</div><div class="value green" id="stat-online">–</div></div>
+    <div class="stat"><div class="label">Offline</div><div class="value amber" id="stat-offline">–</div></div>
+    <div class="stat"><div class="label">Awaiting first packet</div><div class="value" id="stat-pending">–</div></div>
+  </div>
+
+  <div class="hint-banner">
+    <span class="ic">i</span>
+    <div>
+      <b>Pre-register a tracker.</b> Add the 15-digit IMEI printed on the Teltonika device and a vehicle name.
+      The device appears as offline until it sends its first packet to the TCP port; the name is kept when it connects.
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Vehicle</th>
+          <th>IMEI</th>
+          <th>Status</th>
+          <th>Last seen</th>
+          <th>Latest position</th>
+          <th style="text-align:right">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="devices-body">
+        <tr><td colspan="6"><div class="empty-state">Loading devices…</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h3 id="modal-title">Add device</h3>
+    <p class="sub" id="modal-sub">Register an IMEI so it is recognised before it connects.</p>
+    <div class="modal-error" id="modal-error"></div>
+    <form id="modal-form" autocomplete="off">
+      <div class="field" id="imei-field">
+        <label for="m-imei">IMEI</label>
+        <input id="m-imei" type="text" inputmode="numeric" maxlength="15" placeholder="15 digits, e.g. 356913032041875" />
+        <span class="hint">Exactly 15 digits. Find it on the tracker label or in its configuration.</span>
+      </div>
+      <div class="field">
+        <label for="m-name">Vehicle name</label>
+        <input id="m-name" type="text" maxlength="60" placeholder="e.g. Delivery van 01" />
+        <span class="hint">Shown on the dashboard, reports, replay and events.</span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" type="button" id="modal-cancel">Cancel</button>
+        <button class="btn" type="submit" id="modal-save">Add device</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/auth.js"></script>
+<script>
+const devicesBody = document.getElementById('devices-body');
+const backdrop = document.getElementById('modal-backdrop');
+const modalForm = document.getElementById('modal-form');
+const modalError = document.getElementById('modal-error');
+const modalTitle = document.getElementById('modal-title');
+const modalSub = document.getElementById('modal-sub');
+const modalSave = document.getElementById('modal-save');
+const imeiField = document.getElementById('imei-field');
+const imeiInput = document.getElementById('m-imei');
+const nameInput = document.getElementById('m-name');
+
+let devices = [];
+let mode = 'create'; // create | rename
+let renameTarget = null;
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function formatDate(value) {
+  if (!value || value.startsWith('1970-01-01')) return '—';
+  const date = new Date(value.includes('T') ? value : value.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function formatCoords(latest) {
+  if (!latest) return '—';
+  return `${latest.latitude.toFixed(5)}, ${latest.longitude.toFixed(5)}`;
+}
+
+function labelFor(device) {
+  return device.name && device.name.trim() ? device.name : 'Unnamed device';
+}
+
+function showModalError(message) {
+  modalError.textContent = message;
+  modalError.classList.add('show');
+}
+
+function openModal(nextMode, device) {
+  mode = nextMode;
+  renameTarget = device || null;
+  modalError.classList.remove('show');
+  modalForm.reset();
+
+  if (mode === 'create') {
+    modalTitle.textContent = 'Add device';
+    modalSub.textContent = 'Register an IMEI so it is recognised before it connects.';
+    modalSave.textContent = 'Add device';
+    imeiField.style.display = '';
+    imeiInput.disabled = false;
+    nameInput.value = '';
+  } else {
+    modalTitle.textContent = 'Rename vehicle';
+    modalSub.textContent = `Update the name shown for ${device.imei}.`;
+    modalSave.textContent = 'Save name';
+    imeiField.style.display = 'none';
+    nameInput.value = device.name || '';
+  }
+
+  backdrop.classList.add('open');
+  setTimeout(() => {
+    (mode === 'create' ? imeiInput : nameInput).focus();
+  }, 40);
+}
+
+function closeModal() {
+  backdrop.classList.remove('open');
+}
+
+async function api(url, options) {
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function load() {
+  try {
+    const data = await api('/api/devices');
+    devices = data.devices || [];
+    render();
+  } catch (err) {
+    devicesBody.innerHTML = `<tr><td colspan="6"><div class="empty-state">${escapeHtml(err.message)}</div></td></tr>`;
+  }
+}
+
+function render() {
+  const online = devices.filter((d) => d.online);
+  const pending = devices.filter((d) => !d.latest);
+  document.getElementById('stat-total').textContent = devices.length;
+  document.getElementById('stat-online').textContent = online.length;
+  document.getElementById('stat-offline').textContent = devices.length - online.length;
+  document.getElementById('stat-pending').textContent = pending.length;
+
+  if (!devices.length) {
+    devicesBody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No devices registered yet.<br/>Use <b>Add device</b> to register your first tracker.</div></td></tr>';
+    return;
+  }
+
+  devicesBody.innerHTML = devices.map((device) => {
+    const name = labelFor(device);
+    const initial = escapeHtml((device.name || '?').slice(0, 1));
+    const pendingTag = !device.latest ? '<span class="pending-tag">Pending</span>' : '';
+    const lastSeen = device.latest ? formatDate(device.last_seen) : 'Never connected';
+    const coords = formatCoords(device.latest);
+
+    return `
+      <tr data-imei="${escapeHtml(device.imei)}">
+        <td>
+          <div class="device-cell">
+            <div class="avatar">${initial}</div>
+            <div class="device-name${device.name ? '' : ' unnamed'}">${escapeHtml(name)}${pendingTag}</div>
+          </div>
+        </td>
+        <td><span class="imei">${escapeHtml(device.imei)}</span></td>
+        <td>
+          <span class="status-pill ${device.online ? 'active' : 'offline'}">
+            <span class="dot"></span>${device.online ? 'Online' : 'Offline'}
+          </span>
+        </td>
+        <td><span class="muted">${lastSeen}</span></td>
+        <td><span class="muted">${coords}</span></td>
+        <td>
+          <div class="actions">
+            <button class="btn secondary small" data-action="rename" data-imei="${escapeHtml(device.imei)}">Rename</button>
+            <button class="btn danger small" data-action="delete" data-imei="${escapeHtml(device.imei)}">Delete</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+devicesBody.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  const imei = button.dataset.imei;
+  const device = devices.find((d) => d.imei === imei);
+  if (!device) return;
+
+  if (button.dataset.action === 'rename') {
+    openModal('rename', device);
+    return;
+  }
+
+  const name = labelFor(device);
+  if (!window.confirm(`Delete "${name}" (${device.imei})?\n\nThis also permanently removes its positions and events.`)) return;
+
+  try {
+    button.disabled = true;
+    await api(`/api/devices/${encodeURIComponent(device.imei)}`, { method: 'DELETE' });
+    if (window.tpToast) window.tpToast(`Deleted ${name}`);
+    await load();
+  } catch (err) {
+    if (window.tpToast) window.tpToast(err.message);
+    else window.alert(err.message);
+    button.disabled = false;
+  }
+});
+
+document.getElementById('new-device').addEventListener('click', () => openModal('create'));
+document.getElementById('modal-cancel').addEventListener('click', closeModal);
+backdrop.addEventListener('click', (event) => {
+  if (event.target === backdrop) closeModal();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeModal();
+});
+
+modalForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  modalError.classList.remove('show');
+
+  const name = nameInput.value.trim();
+  if (!name) return showModalError('Enter a vehicle name.');
+  if (name.length > 60) return showModalError('Vehicle name must be at most 60 characters.');
+
+  modalSave.disabled = true;
+  try {
+    if (mode === 'create') {
+      const imei = imeiInput.value.trim();
+      if (!/^\d{15}$/.test(imei)) {
+        showModalError('IMEI must be exactly 15 digits.');
+        return;
+      }
+      await api('/api/devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imei, name }),
+      });
+      if (window.tpToast) window.tpToast(`Added ${name}`);
+    } else {
+      await api(`/api/devices/${encodeURIComponent(renameTarget.imei)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (window.tpToast) window.tpToast(`Renamed to ${name}`);
+    }
+    closeModal();
+    await load();
+  } catch (err) {
+    showModalError(err.message);
+  } finally {
+    modalSave.disabled = false;
+  }
+});
+
+load();
+</script>
+</body>
+</html>

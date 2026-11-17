@@ -26,6 +26,10 @@ key required.
   read-only access to dashboards and reports.
 - **Settings** — admin-configurable platform name, overspeed threshold, and
   online timeout, applied to live tracker packets without a restart.
+- **Device registry** — admins pre-register a tracker's 15-digit IMEI with a
+  vehicle name, rename it later, or delete the device with its positions and
+  events. Names are shown across the dashboard, reports, replay, trip history,
+  and event log.
 
 ## Quick start
 
@@ -89,9 +93,13 @@ instances):
 | GET | `/tracks` | Trip history |
 | GET | `/geofences` | Geofence editor |
 | GET | `/events` | Event log |
+| GET | `/devices` | Device registry (admin only) |
 | GET | `/users` | User management (admin only) |
 | GET | `/settings` | Platform settings (admin only) |
-| GET | `/api/devices` | Devices with online status and latest position |
+| GET | `/api/devices` | Devices with online status, vehicle name, and latest position |
+| POST | `/api/devices` | Pre-register a device (`{imei, name}`, admin only) |
+| PATCH | `/api/devices/{imei}` | Rename a device (`{name}`, admin only) |
+| DELETE | `/api/devices/{imei}` | Delete a device with its positions and events (admin only) |
 | GET | `/api/stats` | Aggregate platform statistics |
 | GET | `/api/positions?imei=X&limit=N` | Latest positions |
 | GET | `/api/tracks?imei=X&from=&to=&limit=N` | Track trace (epoch ms) |

@@ -53,7 +53,9 @@
   #detail { bottom: 24px; left: 14px; width: 330px; background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 8px 28px rgba(15,23,42,0.16); padding: 0.9rem 1rem; display: none; }
   #detail.visible { display: block; }
   .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.65rem; }
-  .detail-head .imei { font-weight: 800; font-size: 0.9rem; }
+  .detail-title { min-width: 0; }
+  .detail-head .imei { display: block; font-weight: 800; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail-sub { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.66rem; color: var(--muted); margin-top: 1px; }
   .follow-btn { border: none; border-radius: 999px; font-size: 0.7rem; font-weight: 700; padding: 0.3rem 0.7rem; cursor: pointer; background: #e2e8f0; color: #475569; transition: 0.15s; }
   .follow-btn.on { background: rgba(16,185,129,0.15); color: #047857; }
   .detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.6rem; }
@@ -88,6 +90,7 @@
   .dot.online { background: var(--online); box-shadow: 0 0 0 3px rgba(16,185,129,0.15); }
   .dot.offline { background: var(--offline); }
   .dev-imei { font-weight: 700; font-size: 0.83rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dev-sub { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.65rem; color: var(--muted); padding-left: 1.05rem; margin-top: 1px; }
   .speed-badge { font-size: 0.68rem; font-weight: 800; padding: 0.18rem 0.45rem; border-radius: 999px; background: #eff6ff; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .speed-badge.fast { background: #fef2f2; color: var(--alert); }
   .speed-badge.zero { background: #f1f5f9; color: var(--muted); }
@@ -151,7 +154,10 @@
 
     <div class="map-overlay" id="detail">
       <div class="detail-head">
-        <span class="imei" id="d-imei">—</span>
+        <div class="detail-title">
+          <span class="imei" id="d-imei">—</span>
+          <span class="detail-sub" id="d-imei-sub"></span>
+        </div>
         <button class="follow-btn on" id="follow-btn">Following</button>
       </div>
       <div class="detail-grid">
@@ -218,6 +224,7 @@ const els = {
   search: document.getElementById('search'),
   detail: document.getElementById('detail'),
   dImei: document.getElementById('d-imei'),
+  dImeiSub: document.getElementById('d-imei-sub'),
   dSpeed: document.getElementById('d-speed'),
   dHeading: document.getElementById('d-heading'),
   dAlt: document.getElementById('d-alt'),
@@ -235,6 +242,18 @@ const els = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/// Human-friendly label for a device: vehicle name when set, IMEI otherwise.
+function deviceLabel(imei) {
+  const d = devicesData[imei];
+  return d && d.name ? d.name : imei;
+}
+
 function timeAgo(dateOrMs) {
   const d = typeof dateOrMs === 'number' ? new Date(dateOrMs) : dateOrMs;
   const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
@@ -276,8 +295,13 @@ function markerIcon(online, selected) {
 }
 
 function popupHtml(pos) {
+  const label = deviceLabel(pos.imei);
+  const sub = label !== pos.imei
+    ? `<span style="color:#64748b">${escapeHtml(pos.imei)}</span><br/>`
+    : '';
   return `<div style="font-size:0.8rem;line-height:1.5">
-    <b>${pos.imei}</b><br/>
+    <b>${escapeHtml(label)}</b><br/>
+    ${sub}
     ${new Date(pos.timestamp_ms).toLocaleString()}<br/>
     Speed: <b>${pos.speed} km/h</b> • Heading: ${compass(pos.angle)}<br/>
     Alt: ${pos.altitude} m • Sats: ${pos.satellites}
@@ -338,6 +362,28 @@ async function loadDevices() {
     }
     devicesData = next;
 
+    // Drop markers for devices that were deleted in the registry.
+    for (const imei of Object.keys(markers)) {
+      if (!next[imei]) {
+        map.removeLayer(markers[imei].marker);
+        if (markers[imei].polyline) map.removeLayer(markers[imei].polyline);
+        delete markers[imei];
+      }
+    }
+
+    // Keep an open detail panel in sync with renames or deletions.
+    if (selectedImei) {
+      if (next[selectedImei]) {
+        const label = next[selectedImei].name || selectedImei;
+        els.dImei.textContent = label;
+        els.dImeiSub.textContent = label !== selectedImei ? selectedImei : '';
+        els.dImeiSub.style.display = label !== selectedImei ? '' : 'none';
+      } else {
+        selectedImei = null;
+        els.detail.classList.remove('visible');
+      }
+    }
+
     if (!didInitialFit && Object.keys(markers).length) {
       didInitialFit = true;
       fitAllMarkers();
@@ -387,8 +433,11 @@ function fitAllMarkers() {
 function renderDeviceList() {
   const q = els.search.value.trim().toLowerCase();
   const list = Object.values(devicesData)
-    .filter(d => !q || d.imei.toLowerCase().includes(q))
-    .sort((a, b) => (b.online - a.online) || a.imei.localeCompare(b.imei));
+    .filter(d => !q
+      || d.imei.toLowerCase().includes(q)
+      || (d.name || '').toLowerCase().includes(q))
+    .sort((a, b) => (b.online - a.online)
+      || deviceLabel(a.imei).localeCompare(deviceLabel(b.imei)));
 
   els.devCount.textContent = Object.keys(devicesData).length;
 
@@ -402,16 +451,19 @@ function renderDeviceList() {
     const p = d.latest;
     const speed = p ? p.speed : null;
     const speedClass = speed === null ? 'zero' : (speed > 80 ? 'fast' : (speed === 0 ? 'zero' : ''));
-    const lastSeen = d.last_seen ? timeAgo(parseUtc(d.last_seen)) : '—';
+    const neverSeen = !p || !d.last_seen || d.last_seen.startsWith('1970-01-01');
+    const lastSeen = neverSeen ? 'Never connected' : timeAgo(parseUtc(d.last_seen));
+    const label = d.name ? d.name : d.imei;
 
     const card = document.createElement('div');
     card.className = 'dev-card' + (d.imei === selectedImei ? ' selected' : '');
     card.innerHTML = `
       <div class="dev-top">
         <span class="dot ${d.online ? 'online' : 'offline'}"></span>
-        <span class="dev-imei">${d.imei}</span>
+        <span class="dev-imei" title="${escapeHtml(d.imei)}">${escapeHtml(label)}</span>
         <span class="speed-badge ${speedClass}">${speed === null ? '—' : speed + ' km/h'}</span>
       </div>
+      ${d.name ? `<div class="dev-sub">${escapeHtml(d.imei)}</div>` : ''}
       <div class="dev-bottom">
         <span class="${d.online ? 'online-text' : 'offline-text'}">${d.online ? '● Online' : '○ Offline'}</span>
         <span>${lastSeen}${p ? ' • ' + p.satellites + ' sats' : ''}</span>
@@ -433,8 +485,11 @@ setInterval(() => {
 function selectDevice(imei) {
   selectedImei = imei;
   const d = devicesData[imei];
+  const label = deviceLabel(imei);
   els.detail.classList.add('visible');
-  els.dImei.textContent = imei;
+  els.dImei.textContent = label;
+  els.dImeiSub.textContent = label !== imei ? imei : '';
+  els.dImeiSub.style.display = label !== imei ? '' : 'none';
 
   if (d && d.latest) {
     updateDetail(d.latest);
@@ -443,7 +498,7 @@ function selectDevice(imei) {
     map.flyTo(entry.marker.getLatLng(), 15, { duration: 0.8 });
     setTimeout(() => entry.marker.openPopup(), 850);
   } else {
-    showToast(`${imei} has not reported a position yet`);
+    showToast(label !== imei ? `${label} (${imei}) has not reported a position yet` : `${imei} has not reported a position yet`);
   }
   renderDeviceList();
 }
@@ -510,6 +565,7 @@ function handlePosition(pos) {
   // Update local device data
   const d = devicesData[imei] || {
     imei,
+    name: null,
     first_seen: '',
     last_seen: '',
     online: true,
@@ -557,11 +613,15 @@ function eventSymbol(type) {
 }
 
 function activityHtml(evt) {
+  const label = deviceLabel(evt.imei);
+  const meta = label !== evt.imei
+    ? `${escapeHtml(label)} (${escapeHtml(evt.imei)})`
+    : escapeHtml(evt.imei);
   return `
     <div class="act-icon ${eventClass(evt.type)}">${eventSymbol(evt.type)}</div>
     <div class="act-body">
-      <div class="act-msg">${evt.message}</div>
-      <div class="act-meta">${evt.imei} • ${timeAgo(evt.timestamp_ms)}</div>
+      <div class="act-msg">${escapeHtml(evt.message)}</div>
+      <div class="act-meta">${meta} • ${timeAgo(evt.timestamp_ms)}</div>
     </div>
   `;
 }

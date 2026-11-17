@@ -24,6 +24,8 @@
 //! Admin endpoints:
 //!   GET/POST    /api/users          — list/create users
 //!   PATCH/DELETE /api/users/{id}    — update/delete a user
+//!   POST        /api/devices        — pre-register an IMEI with a vehicle name
+//!   PATCH/DELETE /api/devices/{imei} — rename/delete a device and its history
 //!   GET/POST    /api/settings       — read/update platform settings
 //!   GET         /api/settings/public — public branding
 //!
@@ -31,10 +33,12 @@
 //!   GET  /map                       — Leaflet dashboard page
 //!   GET  /reports                   — GPS telemetry table (timestamp, speed, IO data)
 //!   GET  /replay                    — animated trip replay (Traccar-style)
+//!   GET  /devices                   — device registry (admin only)
 //!   GET  /users                     — user management (admin only)
 //!   GET  /settings                  — platform settings (admin only)
 
 mod auth;
+mod devices;
 mod settings;
 mod users;
 
@@ -138,7 +142,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/password", post(auth::change_password))
         .route("/api/settings/public", get(settings::public_settings))
         .route("/ws", get(ws::ws_handler))
-        .route("/api/devices", get(list_devices))
+        .route(
+            "/api/devices",
+            get(list_devices).post(devices::create_device),
+        )
+        .route(
+            "/api/devices/{imei}",
+            patch(devices::update_device).delete(devices::delete_device),
+        )
         .route("/api/stats", get(get_stats))
         .route("/api/positions", get(get_positions))
         .route("/api/positions/{imei}", get(get_positions_by_imei))
@@ -162,6 +173,8 @@ pub fn router(state: AppState) -> Router {
         .route("/events.html", get(events_page))
         .route("/reports.html", get(reports_page))
         .route("/replay.html", get(replay_page))
+        .route("/devices", get(devices_page))
+        .route("/devices.html", get(devices_page))
         .route("/users", get(users_page))
         .route("/users.html", get(users_page))
         .route("/settings", get(settings_page))
@@ -293,6 +306,13 @@ async fn geofences_page() -> Html<&'static str> {
 
 async fn events_page() -> Html<&'static str> {
     Html(include_str!("events.html"))
+}
+
+async fn devices_page(Extension(user): Extension<CurrentUser>) -> Response {
+    if !user.is_admin() {
+        return Redirect::to("/map").into_response();
+    }
+    Html(include_str!("devices.html")).into_response()
 }
 
 async fn users_page(Extension(user): Extension<CurrentUser>) -> Response {

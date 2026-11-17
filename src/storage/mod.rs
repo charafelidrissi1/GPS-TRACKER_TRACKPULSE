@@ -46,6 +46,8 @@ pub struct Position {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Device {
     pub imei: String,
+    /// Human-friendly vehicle name, set by an admin.
+    pub name: Option<String>,
     pub first_seen: String,
     pub last_seen: String,
     pub online: bool,
@@ -261,6 +263,7 @@ impl SqliteStorage {
         ensure_column(conn, "positions", "device_battery_mv", "INTEGER")?;
         ensure_column(conn, "positions", "vehicle_battery_mv", "INTEGER")?;
         ensure_column(conn, "positions", "gsm_signal", "INTEGER")?;
+        ensure_column(conn, "devices", "name", "TEXT")?;
 
         Ok(())
     }
@@ -311,7 +314,7 @@ impl SqliteStorage {
 
         let mut stmt = self.conn.prepare(
             "
-            SELECT d.imei, d.first_seen, d.last_seen,
+            SELECT d.imei, d.name, d.first_seen, d.last_seen,
                    p.timestamp_ms, p.latitude, p.longitude,
                    p.altitude, p.speed, p.angle, p.satellites,
                    p.odometer_m, p.fuel_level, p.device_battery_mv,
@@ -329,35 +332,37 @@ impl SqliteStorage {
 
         let rows = stmt.query_map([], |row| {
             let imei: String = row.get(0)?;
-            let first_seen: String = row.get(1)?;
-            let last_seen: String = row.get(2)?;
+            let name: Option<String> = row.get(1)?;
+            let first_seen: String = row.get(2)?;
+            let last_seen: String = row.get(3)?;
 
             let online = NaiveDateTime::parse_from_str(&last_seen, "%Y-%m-%d %H:%M:%S")
                 .ok()
                 .map(|ndt| now - ndt.and_utc().timestamp() <= online_window)
                 .unwrap_or(false);
 
-            let latest = match row.get::<_, Option<i64>>(3)? {
+            let latest = match row.get::<_, Option<i64>>(4)? {
                 Some(ts) => Some(Position {
                     imei: imei.clone(),
                     timestamp_ms: ts as u64,
-                    latitude: row.get(4)?,
-                    longitude: row.get(5)?,
-                    altitude: row.get(6)?,
-                    speed: row.get(7)?,
-                    angle: row.get(8)?,
-                    satellites: row.get(9)?,
-                    odometer_m: row.get(10)?,
-                    fuel_level: row.get(11)?,
-                    device_battery_mv: row.get(12)?,
-                    vehicle_battery_mv: row.get(13)?,
-                    gsm_signal: row.get(14)?,
+                    latitude: row.get(5)?,
+                    longitude: row.get(6)?,
+                    altitude: row.get(7)?,
+                    speed: row.get(8)?,
+                    angle: row.get(9)?,
+                    satellites: row.get(10)?,
+                    odometer_m: row.get(11)?,
+                    fuel_level: row.get(12)?,
+                    device_battery_mv: row.get(13)?,
+                    vehicle_battery_mv: row.get(14)?,
+                    gsm_signal: row.get(15)?,
                 }),
                 None => None,
             };
 
             Ok(Device {
                 imei,
+                name,
                 first_seen,
                 last_seen,
                 online,
@@ -370,6 +375,46 @@ impl SqliteStorage {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// Register a device before it first connects. It stays offline until the
+    /// tracker sends its first position.
+    pub fn create_device(&self, imei: &str, name: &str) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO devices (imei, name, last_seen)
+             VALUES (?1, ?2, '1970-01-01 00:00:00')",
+            params![imei, name],
+        )?;
+        Ok(())
+    }
+
+    /// Rename a device. Returns false when the IMEI is not registered.
+    pub fn update_device_name(&self, imei: &str, name: &str) -> rusqlite::Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE devices SET name = ?1 WHERE imei = ?2",
+            params![name, imei],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Delete a device together with its positions and events.
+    pub fn delete_device(&self, imei: &str) -> rusqlite::Result<bool> {
+        self.conn
+            .execute("DELETE FROM positions WHERE imei = ?1", params![imei])?;
+        self.conn
+            .execute("DELETE FROM events WHERE imei = ?1", params![imei])?;
+        let changed = self
+            .conn
+            .execute("DELETE FROM devices WHERE imei = ?1", params![imei])?;
+        Ok(changed > 0)
+    }
+
+    /// Look up a single device (including its latest position).
+    pub fn get_device(&self, imei: &str) -> rusqlite::Result<Option<Device>> {
+        Ok(self
+            .get_devices()?
+            .into_iter()
+            .find(|device| device.imei == imei))
     }
 
     /// Aggregate platform statistics for the dashboard.
@@ -1055,6 +1100,63 @@ mod tests {
         assert_eq!(loaded.platform_name, "Acme Fleet");
         assert_eq!(loaded.overspeed_kmh, 110);
         assert_eq!(loaded.online_timeout_seconds, 900);
+    }
+
+    #[test]
+    fn device_registry_crud() {
+        let storage = SqliteStorage::open(":memory:").unwrap();
+        let imei = "356913032041875";
+
+        // Pre-register a device before it ever connects: it is offline, has no
+        // latest position, and keeps the sentinel last_seen value.
+        storage.create_device(imei, "Delivery van 01").unwrap();
+        let device = storage.get_device(imei).unwrap().unwrap();
+        assert_eq!(device.name.as_deref(), Some("Delivery van 01"));
+        assert!(!device.online);
+        assert!(device.latest.is_none());
+        assert_eq!(device.last_seen, "1970-01-01 00:00:00");
+
+        // IMEIs are unique.
+        assert!(storage.create_device(imei, "Duplicate").is_err());
+
+        // Renaming works, and unknown IMEIs are reported.
+        assert!(storage.update_device_name(imei, "Van One").unwrap());
+        assert_eq!(
+            storage.get_device(imei).unwrap().unwrap().name.as_deref(),
+            Some("Van One")
+        );
+        assert!(!storage.update_device_name("999999999999999", "Ghost").unwrap());
+
+        // The first packet keeps the pre-registered name.
+        let mut pos = sample_position();
+        pos.imei = imei.to_string();
+        storage.insert_position(&pos).unwrap();
+        let device = storage.get_device(imei).unwrap().unwrap();
+        assert_eq!(device.name.as_deref(), Some("Van One"));
+        assert_eq!(device.latest.as_ref().unwrap().latitude, pos.latitude);
+
+        // Devices registered automatically by a packet have no name until set.
+        storage.insert_position(&Position {
+            imei: "111111111111111".to_string(),
+            ..sample_position()
+        }).unwrap();
+        assert_eq!(
+            storage.get_device("111111111111111").unwrap().unwrap().name,
+            None
+        );
+
+        // Deleting a device also removes its positions and events.
+        storage
+            .create_event(imei, "online", "Device came online", pos.timestamp_ms)
+            .unwrap();
+        assert!(storage.delete_device(imei).unwrap());
+        assert!(storage.get_device(imei).unwrap().is_none());
+        assert!(storage.get_positions(imei, 10).unwrap().is_empty());
+        assert!(storage.get_events(Some(imei), 10).unwrap().is_empty());
+        assert!(!storage.delete_device(imei).unwrap());
+
+        // Other devices and their history are untouched.
+        assert!(storage.get_device("111111111111111").unwrap().is_some());
     }
 
     #[test]

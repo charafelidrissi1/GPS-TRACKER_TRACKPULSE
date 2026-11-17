@@ -358,7 +358,7 @@ async function loadDevices() {
     for (const d of data.devices) {
       const opt = document.createElement('option');
       opt.value = d.imei;
-      opt.textContent = d.imei + (d.online ? '  ● online' : '');
+      opt.textContent = (d.name ? d.name + ' — ' + d.imei : d.imei) + (d.online ? '  ● online' : '');
       imeiSel.appendChild(opt);
     }
 

@@ -69,13 +69,13 @@
     const nav = document.querySelector('.nav');
     if (nav) {
       if (!nav.querySelector('a[href="/settings"]')) {
-        nav.insertAdjacentHTML('beforeend', '<a href="/settings">Settings</a><a href="/users">Users</a>');
+        nav.insertAdjacentHTML('beforeend', '<a href="/devices">Devices</a><a href="/settings">Settings</a><a href="/users">Users</a>');
       }
       return;
     }
     const header = document.querySelector('body > header');
     if (header && !header.querySelector('a[href="/settings"]')) {
-      header.insertAdjacentHTML('beforeend', '<a href="/settings">Settings</a><a href="/users">Users</a>');
+      header.insertAdjacentHTML('beforeend', '<a href="/devices">Devices</a><a href="/settings">Settings</a><a href="/users">Users</a>');
     }
   }
 
@@ -83,7 +83,7 @@
     const roleLabel = user.role === 'admin' ? 'Administrator' : 'Viewer';
     const initial = escapeHtml((user.username || '?').slice(0, 1));
     const adminItems = user.role === 'admin'
-      ? '<a href="/settings">Settings</a><a href="/users">Users</a>'
+      ? '<a href="/devices">Devices</a><a href="/settings">Settings</a><a href="/users">Users</a>'
       : '';
     return `
       <div class="tp-user">
